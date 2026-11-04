@@ -1,0 +1,19 @@
+# 依赖
+node_modules/
+.pnpm-store/
+
+# 本地测试产物与临时目录（测试脚本自己造临时 DSH_HOME）
+.tmp/
+coverage/
+*.log
+
+# 本地个人配置
+*.local.json
+.env
+.env.*
+
+# 编辑器 / 系统
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

@@ -1,0 +1,234 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">
+<title>dsh-word-learn · stats</title>
+<style>
+:root{
+  --dsw-alias-bg-base:#FAFAF9;
+  --dsw-alias-bg-layer-1:#FFFFFF;
+  --dsw-alias-bg-skeleton:#EAEAE7;
+  --dsw-alias-border-l2:#E3E3DF;
+  --dsw-alias-label-primary:#191917;
+  --dsw-alias-label-secondary:#5A5A55;
+  --dsw-alias-label-tertiary:#8E8E87;
+  --dsw-alias-interactive-bg-hover:#F2F2EF;
+  --dsw-alias-brand-primary:#0D9488;
+  --dsw-alias-state-success-primary:#16A34A;
+  --dsw-alias-state-warn-primary:#D97706;
+  --dsw-alias-state-error-primary:#DC2626;
+  --dsw-alias-state-business-primary:#2563EB;
+}
+html,body{height:100%;margin:0;background:var(--dsw-alias-bg-base)}
+</style>
+<style>
+.dwl-page{
+  --dwl-shadow:0 1px 2px rgba(24,24,20,.05),0 14px 30px -20px rgba(24,24,20,.42);
+  --dwl-tint:rgba(17,17,17,.045);
+  height:100%;overflow:auto;box-sizing:border-box;
+  background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);
+  font-size:13.5px;line-height:1.6;-webkit-font-smoothing:antialiased;
+}
+body[data-ds-dark-theme] .dwl-page{
+  --dwl-shadow:0 1px 2px rgba(0,0,0,.5),0 14px 30px -20px rgba(0,0,0,1);
+  --dwl-tint:rgba(255,255,255,.055);
+}
+.dwl-page *{box-sizing:border-box}
+.dwl-page :focus-visible{outline:2px solid var(--dsw-alias-brand-primary,#0d9488);outline-offset:2px;border-radius:8px}
+.dwl-wrap{max-width:760px;margin:0 auto;padding:0 24px 56px;min-height:100%;display:flex;flex-direction:column}
+
+/* 顶部：视图切换 */
+.dwl-top{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:12px;height:52px;flex:none;
+  background:var(--dsw-alias-bg-base)}
+.dwl-tabs{display:flex;gap:2px;margin-right:auto}
+.dwl-tab{font:inherit;font-size:13px;padding:6px 12px;border-radius:8px;border:0;background:transparent;
+  color:var(--dsw-alias-label-tertiary);cursor:pointer;transition:background .15s ease,color .15s ease}
+.dwl-tab:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-secondary)}
+.dwl-tab[aria-selected="true"]{color:var(--dsw-alias-label-primary);font-weight:600;background:var(--dwl-tint)}
+.dwl-pill{display:inline-flex;align-items:center;gap:5px;font-size:12px;color:var(--dsw-alias-label-secondary);
+  padding:4px 10px;border-radius:99px;background:var(--dwl-tint);flex:none}
+.dwl-pill b{color:var(--dsw-alias-state-warn-primary);font-variant-numeric:tabular-nums}
+
+/* 今日进度 */
+.dwl-meter{margin-top:4px;flex:none}
+.dwl-track{height:3px;border-radius:2px;background:var(--dsw-alias-bg-skeleton);overflow:hidden}
+.dwl-track i{display:block;height:100%;border-radius:2px;background:var(--dsw-alias-brand-primary);
+  transition:width .45s cubic-bezier(.22,1,.36,1)}
+.dwl-legend-line{display:flex;justify-content:space-between;align-items:baseline;gap:12px;
+  margin-top:9px;font-size:12px;color:var(--dsw-alias-label-tertiary)}
+.dwl-legend-line b{color:var(--dsw-alias-label-primary);font-size:14px;font-variant-numeric:tabular-nums}
+
+/* 一屏一词 */
+.dwl-study{flex:1;display:flex;flex-direction:column;justify-content:center;padding:8px 0 0}
+.dwl-focus{display:flex;flex-direction:column;align-items:center;text-align:center;animation:dwl-in .22s ease}
+@keyframes dwl-in{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+.dwl-word{font-family:ui-serif,Georgia,"Songti SC",serif;font-size:clamp(34px,5.8vw,50px);
+  line-height:1.12;font-weight:600;letter-spacing:-.015em;word-break:break-word;max-width:100%}
+.dwl-phon{margin-top:14px;display:flex;align-items:center;justify-content:center;gap:9px;flex-wrap:wrap;
+  font-size:13px;color:var(--dsw-alias-label-tertiary);font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+.dwl-pos{font-family:-apple-system,sans-serif;font-style:normal;font-size:11.5px;padding:1px 7px;
+  border-radius:5px;background:var(--dwl-tint);color:var(--dsw-alias-label-secondary)}
+.dwl-flag{font-size:11.5px;color:var(--dsw-alias-state-warn-primary);font-family:-apple-system,sans-serif}
+
+/* 先藏后揭 */
+.dwl-reveal{margin-top:24px;min-height:150px;width:100%;display:flex;flex-direction:column;
+  align-items:center;justify-content:center}
+.dwl-veil{display:inline-flex;align-items:center;gap:8px;border:1.5px dashed var(--dsw-alias-brand-primary,#0d9488);
+  background:var(--dwl-tint,rgba(17,17,17,.045));border-radius:10px;padding:10px 16px;cursor:pointer;font:inherit;font-size:12.5px;
+  color:var(--dsw-alias-label-secondary);transition:background .15s ease,border-color .15s ease}
+.dwl-veil:hover{background:var(--dsw-alias-interactive-bg-hover);border-color:var(--dsw-alias-brand-primary)}
+.dwl-body{display:none;width:100%}
+.dwl-reveal[data-on="1"] .dwl-veil{display:none}
+.dwl-reveal[data-on="1"] .dwl-body{display:block;animation:dwl-fade .2s ease}
+@keyframes dwl-fade{from{opacity:0}to{opacity:1}}
+.dwl-meaning{font-size:17px;line-height:1.55}
+.dwl-meaning .lead{color:var(--dsw-alias-brand-primary)}
+.dwl-sense{margin-top:6px;font-size:13.5px;color:var(--dsw-alias-label-secondary)}
+.dwl-hintline{margin-top:14px;font-size:12px;color:var(--dsw-alias-label-tertiary)}
+
+/* 评分：4 个 48px 目标 */
+.dwl-rate{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;width:100%;margin-top:14px}
+.dwl-rate button{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;
+  min-height:48px;padding:8px 4px;border-radius:11px;cursor:pointer;font:inherit;
+  border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);
+  transition:transform .12s ease,background .14s ease,border-color .14s ease,box-shadow .14s ease}
+.dwl-rate button:hover:not(:disabled){transform:translateY(-1px);box-shadow:var(--dwl-shadow)}
+.dwl-rate button:active:not(:disabled){transform:none}
+.dwl-rate button:disabled{opacity:.5;cursor:default}
+.dwl-rate .rl{font-size:13px;font-weight:600}
+.dwl-rate .rk{font-size:10px;color:var(--dsw-alias-label-tertiary);font-variant-numeric:tabular-nums}
+.dwl-rate button[data-tone="again"]{border-color:rgba(220,38,38,.35);background:rgba(220,38,38,.06)}
+.dwl-rate button[data-tone="again"] .rl{color:var(--dsw-alias-state-error-primary)}
+.dwl-rate button[data-tone="again"]:hover:not(:disabled){border-color:var(--dsw-alias-state-error-primary);background:rgba(220,38,38,.10)}
+.dwl-rate button[data-tone="again"]:hover:not(:disabled) .rl{color:var(--dsw-alias-state-error-primary)}
+.dwl-rate button[data-tone="hard"]{border-color:rgba(217,119,6,.35);background:rgba(217,119,6,.06)}
+.dwl-rate button[data-tone="hard"] .rl{color:var(--dsw-alias-state-warn-primary)}
+.dwl-rate button[data-tone="hard"]:hover:not(:disabled){border-color:var(--dsw-alias-state-warn-primary);background:rgba(217,119,6,.10)}
+.dwl-rate button[data-tone="hard"]:hover:not(:disabled) .rl{color:var(--dsw-alias-state-warn-primary)}
+.dwl-rate button[data-tone="good"]{border-color:rgba(22,163,74,.35);background:rgba(22,163,74,.06)}
+.dwl-rate button[data-tone="good"] .rl{color:var(--dsw-alias-state-success-primary)}
+.dwl-rate button[data-tone="good"]:hover:not(:disabled){border-color:var(--dsw-alias-state-success-primary);background:rgba(22,163,74,.10)}
+.dwl-rate button[data-tone="good"]:hover:not(:disabled) .rl{color:var(--dsw-alias-state-success-primary)}
+.dwl-rate button[data-tone="easy"]{border-color:rgba(37,99,235,.35);background:rgba(37,99,235,.06)}
+.dwl-rate button[data-tone="easy"] .rl{color:var(--dsw-alias-state-business-primary)}
+.dwl-rate button[data-tone="easy"]:hover:not(:disabled){border-color:var(--dsw-alias-state-business-primary);background:rgba(37,99,235,.10)}
+.dwl-rate button[data-tone="easy"]:hover:not(:disabled) .rl{color:var(--dsw-alias-state-business-primary)}
+
+/* 底部：进度点 + 快捷键 */
+.dwl-tail{margin-top:16px;display:flex;flex-direction:column;align-items:center;gap:10px;padding-bottom:4px}
+.dwl-dots{display:flex;gap:5px;justify-content:center;flex-wrap:wrap;max-width:420px}
+/* 未到的点用描边而不是填充：填充色只有 1 个 token 的差值，
+   在浅色底上几乎看不见，进度就读不出来 */
+.dwl-dots i{width:7px;height:7px;border-radius:50%;box-sizing:border-box;
+  border:1px solid var(--dsw-alias-label-tertiary);opacity:.45}
+.dwl-dots i.done{background:var(--dsw-alias-brand-primary);border-color:transparent;opacity:1}
+.dwl-dots i.now{background:var(--dsw-alias-label-primary);border-color:transparent;opacity:1;
+  transform:scale(1.45)}
+.dwl-keys{display:flex;align-items:center;justify-content:center;gap:6px;flex-wrap:wrap;
+  font-size:11.5px;color:var(--dsw-alias-label-tertiary)}
+.dwl-page kbd{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:10.5px;line-height:1;
+  padding:3px 5px;border-radius:4px;border:1px solid var(--dsw-alias-border-l2);border-bottom-width:2px;
+  color:var(--dsw-alias-label-tertiary)}
+
+/* 空 / 完成 / 骨架 */
+.dwl-mid{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;
+  text-align:center;gap:10px;padding:40px 0}
+.dwl-mid .big{font-size:34px;font-weight:650;line-height:1.2;font-variant-numeric:tabular-nums}
+.dwl-mid .ttl{font-size:15px;font-weight:600}
+.dwl-mid .sub{font-size:12.5px;color:var(--dsw-alias-label-tertiary);max-width:36ch;line-height:1.7}
+.dwl-btn{font:inherit;font-size:12.5px;padding:7px 14px;border-radius:8px;cursor:pointer;
+  border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);
+  color:var(--dsw-alias-label-primary);transition:background .14s ease}
+.dwl-btn:hover{background:var(--dsw-alias-interactive-bg-hover)}
+.dwl-btn.primary{background:var(--dsw-alias-brand-primary);border-color:transparent;
+  color:var(--dsw-alias-bg-base)}
+.dwl-btn.primary:hover{opacity:.9;background:var(--dsw-alias-brand-primary)}
+.dwl-skel{height:11px;border-radius:5px;background:var(--dsw-alias-bg-skeleton);margin:8px 0}
+
+/* 词汇 */
+.dwl-vocab{padding-top:8px;flex:1;display:flex;flex-direction:column}
+.dwl-search{display:flex;align-items:center;gap:9px;border:1px solid var(--dsw-alias-border-l2);
+  border-radius:10px;padding:9px 12px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-tertiary)}
+.dwl-search input{flex:1;min-width:0;border:0;background:transparent;color:var(--dsw-alias-label-primary);
+  font:inherit;font-size:13px;outline:none}
+.dwl-search input::placeholder{color:var(--dsw-alias-label-tertiary)}
+.dwl-chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:12px}
+.dwl-chip{font:inherit;font-size:11.5px;padding:4px 10px;border-radius:99px;cursor:pointer;
+  border:1px solid var(--dsw-alias-border-l2);background:transparent;color:var(--dsw-alias-label-secondary);
+  transition:background .14s ease,color .14s ease}
+.dwl-chip:hover{background:var(--dsw-alias-interactive-bg-hover)}
+.dwl-chip[aria-pressed="true"]{background:var(--dwl-tint);color:var(--dsw-alias-label-primary);font-weight:600}
+.dwl-vlist{display:grid;grid-template-columns:1fr 1fr;gap:1px 18px;margin-top:12px}
+.dwl-vrow{display:flex;align-items:baseline;gap:8px;padding:6px 8px;border-radius:7px;min-height:34px;
+  transition:background .12s ease}
+.dwl-vrow:hover{background:var(--dsw-alias-interactive-bg-hover)}
+.dwl-vrow .w{font-weight:600;font-size:13.5px;flex:none}
+.dwl-vrow .p{font-size:10.5px;color:var(--dsw-alias-label-tertiary);
+  font-family:ui-monospace,SFMono-Regular,Menlo,monospace;flex:none}
+.dwl-vrow .t{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  font-size:12px;color:var(--dsw-alias-label-secondary)}
+.dwl-vrow .m{flex:none;font-size:10.5px;color:var(--dsw-alias-label-tertiary);font-variant-numeric:tabular-nums}
+.dwl-more{display:flex;justify-content:center;align-items:center;margin:18px 0 0;gap:10px;font-size:11.5px;
+  color:var(--dsw-alias-label-tertiary)}
+
+/* 数据 */
+.dwl-stats{padding-top:14px;display:flex;flex-direction:column;gap:14px;flex:1}
+.dwl-kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:var(--dsw-alias-border-l2);
+  border:1px solid var(--dsw-alias-border-l2);border-radius:11px;overflow:hidden}
+.dwl-kpi{background:var(--dsw-alias-bg-layer-1);padding:12px 14px;min-width:0}
+.dwl-kpi .n{font-size:20px;font-weight:650;line-height:1.2;font-variant-numeric:tabular-nums}
+.dwl-kpi .l{font-size:11px;color:var(--dsw-alias-label-tertiary);margin-top:2px;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dwl-panel{border:1px solid var(--dsw-alias-border-l2);border-radius:11px;
+  background:var(--dsw-alias-bg-layer-1);padding:14px 16px;min-width:0}
+.dwl-panel>h3{margin:0 0 12px;font-size:12px;font-weight:600;color:var(--dsw-alias-label-secondary);
+  display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+.dwl-panel>h3 span{font-weight:400;color:var(--dsw-alias-label-tertiary);font-size:11px}
+.dwl-bars{display:flex;align-items:flex-end;gap:4px;height:64px}
+.dwl-bars i{flex:1;min-width:0;border-radius:3px 3px 0 0;background:var(--dsw-alias-brand-primary);
+  opacity:.82;min-height:2px;transition:opacity .14s ease}
+.dwl-bars i.zero{opacity:.18}
+.dwl-axis{display:flex;gap:4px;margin-top:5px}
+.dwl-axis span{flex:1;text-align:center;font-size:9.5px;color:var(--dsw-alias-label-tertiary);
+  overflow:hidden;white-space:nowrap}
+.dwl-prog{height:7px;border-radius:4px;background:var(--dsw-alias-bg-skeleton);overflow:hidden;
+  display:flex;margin:8px 0 9px}
+.dwl-prog i{display:block;height:100%}
+.dwl-lgd{display:flex;flex-wrap:wrap;gap:12px;font-size:11.5px;color:var(--dsw-alias-label-secondary)}
+.dwl-lgd span{display:inline-flex;align-items:center;gap:5px}
+.dwl-dot{width:8px;height:8px;border-radius:50%;flex:none;display:inline-block}
+.dwl-abrow{display:flex;align-items:center;gap:10px;margin-top:8px}
+.dwl-abrow:first-of-type{margin-top:0}
+.dwl-abrow .nm{width:36px;flex:none;font-size:12px;color:var(--dsw-alias-label-secondary)}
+.dwl-abrow .hist{flex:1;min-width:0;display:flex;gap:3px;align-items:flex-end;height:24px}
+.dwl-abrow .hist i{flex:1;border-radius:2px 2px 0 0;background:var(--dsw-alias-brand-primary);min-height:2px}
+.dwl-abrow .hi{font-size:10.5px;color:var(--dsw-alias-label-tertiary);
+  font-variant-numeric:tabular-nums;flex:none;width:52px;text-align:right}
+.dwl-dist{display:flex;align-items:center;gap:9px;font-size:11.5px;margin-top:7px}
+.dwl-dist:first-of-type{margin-top:0}
+.dwl-dist .nm{width:44px;flex:none;color:var(--dsw-alias-label-secondary)}
+.dwl-dist .bar{flex:1;height:8px;border-radius:4px;background:var(--dsw-alias-bg-skeleton);overflow:hidden}
+.dwl-dist .bar i{display:block;height:100%}
+.dwl-dist .v{width:56px;text-align:right;flex:none;font-variant-numeric:tabular-nums;
+  color:var(--dsw-alias-label-tertiary)}
+.dwl-rows{display:flex;flex-direction:column;gap:1px}
+.dwl-row{display:flex;align-items:baseline;gap:10px;padding:6px 8px;border-radius:7px}
+.dwl-row .w{font-weight:600;font-size:13px;flex:none;min-width:88px}
+.dwl-row .t{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  color:var(--dsw-alias-label-secondary);font-size:12px}
+.dwl-row .m{flex:none;font-size:11px;color:var(--dsw-alias-label-tertiary);font-variant-numeric:tabular-nums}
+.dwl-note{font-size:11.5px;color:var(--dsw-alias-label-tertiary);margin-top:10px;line-height:1.65}
+.dwl-err{color:var(--dsw-alias-state-error-primary);font-size:12.5px}
+.dwl-banner{display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:9px;
+  border:1px solid var(--dsw-alias-state-error-primary);font-size:12px;margin-bottom:10px;flex:none}
+.dwl-banner span{flex:1;min-width:0;color:var(--dsw-alias-state-error-primary)}
+
+@media (max-width:620px){
+  .dwl-wrap{padding:0 16px 48px}
+  .dwl-vlist{grid-template-columns:1fr}
+  .dwl-kpis{grid-template-columns:1fr 1fr}
+  .dwl-rate{gap:6px}
+  .dwl-word{font-size:32px}
+}
+@media (prefers-reduced-motion:reduce){
+  .dwl-page *,.dwl-page *::before,.dwl-page *::after{animation:none!important;transition:none!important}
+}
+</style>
+</head><body><div class="dwl-page"><div class="dwl-wrap"><div class="dwl-top"><div class="dwl-tabs" role="tablist" aria-label="学习页视图"><button type="button" role="tab" class="dwl-tab" onClick="() =&gt; changeView(t.key)">学习</button><button type="button" role="tab" class="dwl-tab" onClick="() =&gt; changeView(t.key)">词汇</button><button type="button" role="tab" class="dwl-tab" onClick="() =&gt; changeView(t.key)">数据</button></div><span class="dwl-pill">今日已复习 <b>12</b> 次</span></div><div class="dwl-stats"><div class="dwl-kpis"><div class="dwl-kpi"><div class="n">642</div><div class="l">开始 / 1284 词</div></div><div class="dwl-kpi"><div class="n">78%</div><div class="l">复习正确率</div></div><div class="dwl-kpi"><div class="n">19</div><div class="l">明日到期</div></div><div class="dwl-kpi"><div class="n">12</div><div class="l">今日已复习</div></div></div><div class="dwl-panel"><h3>未来 14 天到期<span>只算已排期的卡</span></h3><div><div class="dwl-bars"><i class="" style="height:79.16666666666666%" title="11/2：19 个"></i><i class="" style="height:100%" title="11/3：24 个"></i><i class="" style="height:45.83333333333333%" title="11/4：11 个"></i><i class="" style="height:25%" title="11/5：6 个"></i><i class="" style="height:12.5%" title="11/6：3 个"></i><i class="" style="height:33.33333333333333%" title="11/7：8 个"></i><i class="" style="height:58.333333333333336%" title="11/8：14 个"></i><i class="" style="height:87.5%" title="11/9：21 个"></i><i class="" style="height:37.5%" title="11/10：9 个"></i><i class="" style="height:16.666666666666664%" title="11/11：4 个"></i><i class="" style="height:8.333333333333332%" title="11/12：2 个"></i><i class="" style="height:29.166666666666668%" title="11/13：7 个"></i><i class="" style="height:50%" title="11/14：12 个"></i><i class="" style="height:20.833333333333336%" title="11/15：5 个"></i></div><div class="dwl-axis"><span>11/2</span><span>11/3</span><span>11/4</span><span>11/5</span><span>11/6</span><span>11/7</span><span>11/8</span><span>11/9</span><span>11/10</span><span>11/11</span><span>11/12</span><span>11/13</span><span>11/14</span><span>11/15</span></div></div></div><div class="dwl-panel"><h3>近 14 天复习量</h3><div><div class="dwl-bars"><i class="" style="height:22.22222222222222%" title="10/20：4 次作答"></i><i class="" style="height:38.88888888888889%" title="10/21：7 次作答"></i><i class="zero" style="height:2%" title="10/22：0 次作答"></i><i class="" style="height:61.111111111111114%" title="10/23：11 次作答"></i><i class="" style="height:50%" title="10/24：9 次作答"></i><i class="" style="height:83.33333333333334%" title="10/25：15 次作答"></i><i class="" style="height:33.33333333333333%" title="10/26：6 次作答"></i><i class="" style="height:16.666666666666664%" title="10/27：3 次作答"></i><i class="" style="height:66.66666666666666%" title="10/28：12 次作答"></i><i class="" style="height:100%" title="10/29：18 次作答"></i><i class="" style="height:38.88888888888889%" title="10/30：7 次作答"></i><i class="zero" style="height:2%" title="10/31：0 次作答"></i><i class="" style="height:50%" title="11/1：9 次作答"></i><i class="" style="height:66.66666666666666%" title="11/2：12 次作答"></i></div><div class="dwl-axis"><span>10/20</span><span>10/21</span><span>10/22</span><span>10/23</span><span>10/24</span><span>10/25</span><span>10/26</span><span>10/27</span><span>10/28</span><span>10/29</span><span>10/30</span><span>10/31</span><span>11/1</span><span>11/2</span></div></div></div><div class="dwl-panel"><h3>学习进度<span>642 / 1284 个词</span></h3><div><div class="dwl-prog"><i style="width:32.71028037383177%;background:var(--dsw-alias-state-success-primary)" title="最高频 1000：420"></i><i style="width:29.595015576323984%;background:var(--dsw-alias-state-business-primary)" title="高频 3000：380"></i><i style="width:23.364485981308412%;background:var(--dsw-alias-brand-primary)" title="常用 8000：300"></i><i style="width:11.682242990654206%;background:var(--dsw-alias-state-warn-primary)" title="低频 / 专业：150"></i><i style="width:2.64797507788162%;background:var(--dsw-alias-label-tertiary)" title="未分级：34"></i></div><div class="dwl-lgd"><span><i class="dwl-dot" style="background:var(--dsw-alias-state-success-primary)"></i>最高频 1000 420</span><span><i class="dwl-dot" style="background:var(--dsw-alias-state-business-primary)"></i>高频 3000 380</span><span><i class="dwl-dot" style="background:var(--dsw-alias-brand-primary)"></i>常用 8000 300</span><span><i class="dwl-dot" style="background:var(--dsw-alias-state-warn-primary)"></i>低频 / 专业 150</span><span><i class="dwl-dot" style="background:var(--dsw-alias-label-tertiary)"></i>未分级 34</span></div></div><div class="dwl-note">新词 642 · 学习中 120 · 复习中 480 · 重学 39</div></div><div class="dwl-panel"><h3>能力画像<span>0–5 分，条长是词数</span></h3><div class="dwl-abrow" title="看到词形能想起意思"><span class="nm">认得</span><div class="hist"><i style="height:8.333333333333332%;opacity:0.78" title="0 分：10 个词"></i><i style="height:21.666666666666668%;opacity:0.78" title="1 分：26 个词"></i><i style="height:35%;opacity:0.78" title="2 分：42 个词"></i><i style="height:73.33333333333333%;opacity:0.78" title="3 分：88 个词"></i><i style="height:100%;opacity:0.78" title="4 分：120 个词"></i><i style="height:75%;opacity:0.78" title="5 分：90 个词"></i></div><span class="hi">均 3.5</span></div><div class="dwl-abrow" title="知道它在句子里的确切含义"><span class="nm">意思</span><div class="hist"><i style="height:25%;opacity:0.78" title="0 分：30 个词"></i><i style="height:43.333333333333336%;opacity:0.78" title="1 分：52 个词"></i><i style="height:58.333333333333336%;opacity:0.78" title="2 分：70 个词"></i><i style="height:70%;opacity:0.78" title="3 分：84 个词"></i><i style="height:50%;opacity:0.78" title="4 分：60 个词"></i><i style="height:25%;opacity:0.78" title="5 分：30 个词"></i></div><span class="hi">均 2.6</span></div><div class="dwl-abrow" title="能主动拼写出来"><span class="nm">能写</span><div class="hist"><i style="height:100%;opacity:0.78" title="0 分：120 个词"></i><i style="height:75%;opacity:0.78" title="1 分：90 个词"></i><i style="height:48.333333333333336%;opacity:0.78" title="2 分：58 个词"></i><i style="height:21.666666666666668%;opacity:0.78" title="3 分：26 个词"></i><i style="height:8.333333333333332%;opacity:0.78" title="4 分：10 个词"></i><i style="height:3.3333333333333335%;opacity:0.78" title="5 分：4 个词"></i></div><span class="hi">均 1.1</span></div><div class="dwl-abrow" title="听到能反应过来"><span class="nm">能听</span><div class="hist"><i style="height:80%;opacity:0.78" title="0 分：96 个词"></i><i style="height:61.66666666666667%;opacity:0.78" title="1 分：74 个词"></i><i style="height:40%;opacity:0.78" title="2 分：48 个词"></i><i style="height:18.333333333333332%;opacity:0.78" title="3 分：22 个词"></i><i style="height:6.666666666666667%;opacity:0.78" title="4 分：8 个词"></i><i style="height:2.5%;opacity:0.78" title="5 分：3 个词"></i></div><span class="hi">均 1.1</span></div><div class="dwl-abrow" title="发音能被识别"><span class="nm">读准</span><div class="hist"><i style="height:58.333333333333336%;opacity:0.78" title="0 分：70 个词"></i><i style="height:71.66666666666667%;opacity:0.78" title="1 分：86 个词"></i><i style="height:50%;opacity:0.78" title="2 分：60 个词"></i><i style="height:28.333333333333332%;opacity:0.78" title="3 分：34 个词"></i><i style="height:11.666666666666666%;opacity:0.78" title="4 分：14 个词"></i><i style="height:4.166666666666666%;opacity:0.78" title="5 分：5 个词"></i></div><span class="hi">均 1.4</span></div></div><div class="dwl-panel"><h3>作答分布<span>共 431 次</span></h3><div class="dwl-dist"><span class="nm">忘了</span><span class="bar"><i style="width:9.280742459396752%;background:var(--dsw-alias-state-error-primary)"></i></span><span class="v">40 次</span></div><div class="dwl-dist"><span class="nm">勉强</span><span class="bar"><i style="width:12.761020881670534%;background:var(--dsw-alias-state-warn-primary)"></i></span><span class="v">55 次</span></div><div class="dwl-dist"><span class="nm">记得</span><span class="bar"><i style="width:55.68445475638051%;background:var(--dsw-alias-state-success-primary)"></i></span><span class="v">240 次</span></div><div class="dwl-dist"><span class="nm">太简单</span><span class="bar"><i style="width:22.2737819025522%;background:var(--dsw-alias-state-business-primary)"></i></span><span class="v">96 次</span></div></div><div class="dwl-panel"><h3>最容易忘的词<span>按遗忘次数</span></h3><div class="dwl-rows"><div class="dwl-row"><span class="w">notwithstanding</span><span class="t">尽管，虽然</span><span class="m">忘 7 次</span></div><div class="dwl-row"><span class="w">vicissitude</span><span class="t">（命运的）变迁起伏</span><span class="m">忘 5 次</span></div><div class="dwl-row"><span class="w">penchant</span><span class="t">嗜好，偏好</span><span class="m">忘 4 次</span></div></div></div><div class="dwl-panel"><h3>最近遇到</h3><div class="dwl-rows"><div class="dwl-row"><span class="w">ephemeral</span><span class="t">短暂的，转瞬即逝的</span><span class="m">1 分钟前</span></div><div class="dwl-row"><span class="w">ubiquitous</span><span class="t">无处不在的</span><span class="m">1 小时前</span></div></div></div><div class="dwl-note">数据存在 C:/Users/xiaoliyue/.dsh/dsh-word-learn/user.db（本地，可备份）</div></div></div></div></body></html>

@@ -1,0 +1,132 @@
+{
+  "score": 60.0,
+  "distance": 0,
+  "acoustic_distance": 0.0,
+  "differences": {
+    "word_distance": 0,
+    "phoneme_distance": 0.0,
+    "word_error_rate": 0.0,
+    "phoneme_error_rate": 1.0,
+    "errors": [
+      {
+        "position": 0,
+        "word": "thought",
+        "expected": "θɑt",
+        "actual": "dad",
+        "actual_word": "",
+        "phone_distance": 3,
+        "confidence": 0.674,
+        "phones": [
+          {
+            "expected": "θ",
+            "heard": "d",
+            "confidence": 0.937
+          },
+          {
+            "expected": "ɑ",
+            "heard": "a",
+            "confidence": 0.0
+          },
+          {
+            "expected": "t",
+            "heard": "d",
+            "confidence": 0.411
+          }
+        ]
+      }
+    ],
+    "feedback": "🔊 Feedback on your pronunciation:\n❌ You need to better pronounce these words: thought\n",
+    "transcribe": "THOUGHT",
+    "expected_vector": [
+      952.0,
+      596.0,
+      720.0,
+      116.0
+    ],
+    "transcribed_vector": [
+      952.0,
+      596.0,
+      720.0,
+      116.0
+    ],
+    "expected_phonemes": [
+      "θɔːt"
+    ],
+    "transcribed_phonemes": [
+      "θɔːt"
+    ],
+    "words_with_errors": [
+      "thought"
+    ],
+    "expected_phones": [
+      [
+        "θ",
+        "ɑ",
+        "t"
+      ]
+    ],
+    "heard_phones": [
+      "d",
+      "a",
+      "d"
+    ],
+    "heard_phones_confidence": [
+      0.453,
+      0.312,
+      0.945
+    ]
+  },
+  "feedback": "🔊 Feedback on your pronunciation:\n❌ You need to better pronounce these words: thought\n",
+  "transcribe": "THOUGHT",
+  "language": "en",
+  "prosody": {
+    "f0": [
+      268.51450055605267,
+      268.51450055605267,
+      268.51450055605267,
+      268.51450055605267,
+      244.81070866093103,
+      243.40070273411817,
+      240.60500721642333,
+      240.60500721642333,
+      237.8414230005442,
+      229.73967099940702,
+      210.67220719096719,
+      189.86842419010387,
+      159.65967727133,
+      143.893358001082,
+      138.99182198423372,
+      145.56531828421873,
+      145.56531828421873,
+      145.56531828421873,
+      145.56531828421873,
+      145.56531828421873,
+      145.56531828421873,
+      145.56531828421873
+    ],
+    "energy": [
+      0.0,
+      0.5166358947753906,
+      0.8247480988502502,
+      31.274335861206055,
+      132.6073455810547,
+      192.40512084960938,
+      227.04464721679688,
+      250.0,
+      241.2655487060547,
+      214.1752166748047,
+      184.67190551757812,
+      150.4148712158203,
+      101.82608795166016,
+      57.22238540649414,
+      22.67232322692871,
+      8.052471160888672,
+      1.9416728019714355,
+      1.0704959630966187,
+      0.15568247437477112,
+      0.07667769491672516,
+      0.05591989681124687,
+      0.04234011098742485
+    ]
+  }
+}

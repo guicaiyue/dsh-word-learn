@@ -1,0 +1,325 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>发音源对比台 · dsh-word-learn</title>
+<style>
+  :root{
+    --bg:#fbfbfa; --panel:#fff; --line:#e6e4df; --line2:#efeeea;
+    --fg:#1c1c1a; --fg2:#5d5c57; --fg3:#918f88;
+    --ok:#1f7a4d; --bad:#b23a33; --warn:#8a6100; --accent:#2c6bed;
+    --chip:#f4f3f0;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{
+      --bg:#101113; --panel:#17181b; --line:#2a2c30; --line2:#222428;
+      --fg:#eceae5; --fg2:#a5a29b; --fg3:#77756e;
+      --ok:#5ecb92; --bad:#f07a72; --warn:#e0b355; --accent:#7aa2ff;
+      --chip:#1e2024;
+    }
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; background:var(--bg); color:var(--fg);
+    font:13px/1.55 -apple-system,"Segoe UI",system-ui,"PingFang SC","Microsoft YaHei",sans-serif;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:980px;margin:0 auto;padding:28px 24px 64px}
+  h1{font-size:17px;margin:0 0 4px;letter-spacing:-.01em}
+  .sub{color:var(--fg3);font-size:12px;margin:0 0 20px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px 16px;margin-bottom:14px}
+  h2{font-size:12px;font-weight:600;color:var(--fg2);margin:0 0 10px;letter-spacing:.02em}
+  code{font:11.5px/1.5 ui-monospace,SFMono-Regular,Consolas,monospace;background:var(--chip);padding:1px 5px;border-radius:4px}
+  .diag{display:flex;gap:10px;align-items:flex-start;border-color:var(--bad)}
+  .diag .mark{color:var(--bad);font-size:15px;line-height:1.35;flex:none}
+  .diag p{margin:0 0 6px}
+  .diag p:last-child{margin:0}
+  .muted{color:var(--fg2)}
+
+  /* word input */
+  .adder{display:flex;gap:8px;align-items:center}
+  .adder input{
+    flex:1;height:32px;padding:0 10px;border:1px solid var(--line);border-radius:8px;
+    background:var(--bg);color:var(--fg);font:13px inherit;outline:none;
+  }
+  .adder input:focus{border-color:var(--accent)}
+  button{font:inherit;color:inherit;background:var(--chip);border:1px solid var(--line);
+    border-radius:8px;padding:5px 11px;cursor:pointer;transition:background .12s,border-color .12s}
+  button:hover{background:var(--line2)}
+  button:active{transform:translateY(.5px)}
+
+  /* table */
+  table{width:100%;border-collapse:collapse}
+  th{font-size:11px;font-weight:600;color:var(--fg3);text-align:left;padding:0 6px 8px;white-space:nowrap}
+  td{padding:6px;border-top:1px solid var(--line2);vertical-align:middle}
+  td.w{font-weight:590;font-size:13.5px;white-space:nowrap}
+  .src{display:flex;flex-direction:column;gap:3px;align-items:flex-start}
+  .src button{width:100%;display:flex;align-items:center;justify-content:space-between;gap:6px;padding:5px 8px;font-size:12px}
+  .st{font-size:10.5px;color:var(--fg3);font-variant-numeric:tabular-nums;white-space:nowrap}
+  .st[data-s="ok"]{color:var(--ok)}
+  .st[data-s="fail"],.st[data-s="timeout"]{color:var(--bad)}
+  .st[data-s="load"]{color:var(--warn)}
+  .src button[data-s="ok"]{border-color:var(--ok)}
+  .src button[data-s="fail"]{border-color:var(--bad);opacity:.75}
+
+  .log{font:11.5px/1.6 ui-monospace,SFMono-Regular,Consolas,monospace;color:var(--fg2);
+    max-height:150px;overflow:auto;white-space:pre-wrap;word-break:break-all}
+  .foot{color:var(--fg3);font-size:11.5px;margin-top:18px}
+  .foot b{color:var(--fg2);font-weight:600}
+  .kbd{font:11px ui-monospace,monospace;background:var(--chip);border-radius:3px;padding:0 4px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>发音源对比台</h1>
+  <p class="sub">dsh-word-learn · 用真实浏览器逐个试听候选音源，判断哪个"听得下去"、哪个能打到词。点任意按钮即真播。</p>
+
+  <div class="card diag">
+    <span class="mark">✕</span>
+    <div>
+      <p><b>先说明现在为什么没声音。</b>插件用的是 <code>api.dictionaryapi.dev/media/pronunciations/…mp3</code>，
+      实测 <b>4/4 全返回 502 Bad Gateway</b>（该站的 JSON 接口正常，只有媒体托管挂了）。</p>
+      <p class="muted">而且 <code>wordcard.js</code> 里播放失败的 Promise 被 <code>catch(function(){})</code> 吞掉，
+      喇叭按钮照样亮着 —— 点了没反应也不报错，所以看起来像"静音/坏了"。</p>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>加一个词</h2>
+    <div class="adder">
+      <input id="word" placeholder="输入英文单词，回车试听，例如 developer" autocomplete="off" spellcheck="false">
+      <button id="add">加入</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>逐源试听（同一词并排，方便比音质）</h2>
+    <table id="grid">
+      <thead>
+        <tr>
+          <th style="width:108px">词</th>
+          <th>真人 · Wiktionary</th>
+          <th>有道</th>
+          <th>Google 合成</th>
+          <th>本机 TTS</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </div>
+
+  <div class="card">
+    <h2>日志（含解析到的真实 URL）</h2>
+    <div class="log" id="log">—</div>
+  </div>
+
+  <p class="foot">
+    <b>读法：</b>「真人 · Wiktionary」是 Wikimedia Commons 上的真人录音（插件原音源的同一批），
+    绕开挂掉的中间商直连 <code>upload.wikimedia.org</code>；<b>技术复合词常常没有</b>（developer / throughput / concurrency 实测全缺）。
+    「有道」是词典真人音，免费但属未公开接口，自用可以、发布要慎重。「Google 合成」是国内不一定通、且同样未公开。
+    「本机 TTS」走 Windows 自带语音（Zira / David），离线、100% 有音、但机械。
+    <br>提示：播放前先看一眼浏览器是否有声音权限；本页直接双击打开也能跑。
+  </p>
+</div>
+
+<script>
+(function () {
+  var DEFAULT = ['latent', 'hello', 'developer', 'throughput', 'concurrency', 'rhythm', 'measure', 'serendipity']
+  var logEl = document.getElementById('log')
+  var tbody = document.querySelector('#grid tbody')
+  var audioEl = null   // 保引用，防被 GC 掉导致无声
+
+  function log(msg) {
+    var t = new Date().toLocaleTimeString('zh-CN', { hour12: false })
+    var line = '[' + t + '] ' + msg
+    logEl.textContent = (logEl.textContent === '—' ? '' : logEl.textContent + '\n') + line
+    logEl.scrollTop = logEl.scrollHeight
+  }
+
+  // ---------------------------------------------------------------- 音源定义
+  function youdao(w, type) {
+    return 'https://dict.youdao.com/dictvoice?audio=' + encodeURIComponent(w) + '&type=' + type
+  }
+  function google(w) {
+    return 'https://translate.google.com/translate_tts?ie=UTF-8&q=' + encodeURIComponent(w) + '&tl=en&client=tw-ob'
+  }
+
+  // Commons 没有可拼的直链（路径带哈希），必须查一次 API；结果缓存
+  var commonsCache = {}
+  function commonsUrl(word, accent) {
+    var key = accent + ':' + word
+    if (commonsCache[key]) return Promise.resolve(commonsCache[key])
+    var title = 'File:En-' + accent + '-' + word + '.ogg'
+    var api = 'https://commons.wikimedia.org/w/api.php?action=query&titles=' +
+      encodeURIComponent(title) + '&prop=imageinfo&iiprop=url&format=json&origin=*'
+    return fetch(api).then(function (r) { return r.json() }).then(function (j) {
+      var pages = (j && j.query && j.query.pages) || {}
+      var page = pages[Object.keys(pages)[0]]
+      var url = page && page.imageinfo && page.imageinfo[0] && page.imageinfo[0].url
+      url = url ? url.split('?')[0] : ''
+      commonsCache[key] = url
+      return url
+    }).catch(function () { return '' })
+  }
+
+  // ---------------------------------------------------------------- 播放 + 状态
+  function play(url, btn, st) {
+    if (audioEl) { try { audioEl.pause() } catch (e) {} }
+    var a = new Audio()
+    audioEl = a
+    a.preload = 'auto'
+    var settled = false
+    function done(state, text) {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
+      st.setAttribute('data-s', state)
+      st.textContent = text
+      btn.setAttribute('data-s', state)
+    }
+    var timer = setTimeout(function () { done('timeout', '超时 9s'); log('timeout  ' + url) }, 9000)
+
+    a.addEventListener('loadedmetadata', function () {
+      var d = isFinite(a.duration) ? a.duration.toFixed(2) + 's' : '?s'
+      done('ok', '✓ ' + d)
+      log('ok  ' + d + '  ' + url)
+      var p = a.play()
+      if (p && p.catch) p.catch(function () { st.textContent = '已就绪·点击放行' })
+    })
+    a.addEventListener('error', function () {
+      done('fail', '✕ 打不开')
+      log('error  ' + url)
+    })
+    a.src = url
+    st.setAttribute('data-s', 'load')
+    st.textContent = '… 加载'
+    btn.removeAttribute('data-s')
+  }
+
+  // ---------------------------------------------------------------- 本机 TTS
+  var voices = []
+  function loadVoices() { voices = window.speechSynthesis ? window.speechSynthesis.getVoices() : [] }
+  if (window.speechSynthesis) {
+    loadVoices()
+    window.speechSynthesis.addEventListener('voiceschanged', loadVoices)
+  }
+  function pickVoice(accent) {
+    var want = accent === 'uk' ? /en[-_]GB/i : /en[-_]US/i
+    return voices.find(function (v) { return want.test(v.lang) }) ||
+           voices.find(function (v) { return /^en/i.test(v.lang) }) || null
+  }
+  function speak(word, accent, btn, st) {
+    if (!window.speechSynthesis) { st.setAttribute('data-s', 'fail'); st.textContent = '✕ 不支持'; return }
+    window.speechSynthesis.cancel()
+    var u = new SpeechSynthesisUtterance(word)
+    var v = pickVoice(accent)
+    if (v) u.voice = v
+    u.lang = v ? v.lang : 'en-US'
+    u.rate = 0.92
+    u.onstart = function () {
+      st.setAttribute('data-s', 'ok'); st.textContent = '✓ ' + (v ? v.name.replace(/^Microsoft | Desktop$/g, '') : '默认')
+      btn.setAttribute('data-s', 'ok')
+      log('tts  ' + (v ? v.name + ' / ' + v.lang : 'default'))
+    }
+    u.onerror = function (e) { st.setAttribute('data-s', 'fail'); st.textContent = '✕ ' + (e.error || '失败') }
+    window.speechSynthesis.speak(u)
+  }
+
+  // ---------------------------------------------------------------- 渲染
+  var SOURCES = [
+    { key: 'wu', label: 'US 真人', build: function (w) { return commonsUrl(w, 'us') } },
+    { key: 'wk', label: 'UK 真人', build: function (w) { return commonsUrl(w, 'uk') } },
+    { key: 'y2', label: 'US', build: function (w) { return Promise.resolve(youdao(w, 2)) } },
+    { key: 'y1', label: 'UK', build: function (w) { return Promise.resolve(youdao(w, 1)) } },
+    { key: 'g',  label: '翻译音', build: function (w) { return Promise.resolve(google(w)) } }
+  ]
+
+  function cell(btnLabel, onClick) {
+    var st = document.createElement('div')
+    st.className = 'st'
+    st.textContent = '未试'
+    var btn = document.createElement('button')
+    btn.type = 'button'
+    btn.innerHTML = '<span>' + btnLabel + '</span><span>▸</span>'
+    btn.addEventListener('click', function () { onClick(btn, st) })
+    var box = document.createElement('div')
+    box.className = 'src'
+    box.appendChild(btn)
+    box.appendChild(st)
+    return box
+  }
+
+  function addRow(word) {
+    word = String(word || '').trim().toLowerCase()
+    if (!/^[a-z][a-z'\- ]{0,40}$/.test(word)) { log('跳过非法输入: ' + word); return }
+    var tr = document.createElement('tr')
+    var td0 = document.createElement('td')
+    td0.className = 'w'
+    td0.textContent = word
+    tr.appendChild(td0)
+
+    // 1) Commons US / UK 合进一格
+    var td1 = document.createElement('td')
+    var pair = document.createElement('div')
+    pair.style.display = 'flex'; pair.style.gap = '6px'
+    ;['us', 'uk'].forEach(function (acc) {
+      var src = SOURCES.find(function (s) { return s.key === (acc === 'us' ? 'wu' : 'wk') })
+      var b = cell(acc.toUpperCase(), function (btn, st) {
+        st.setAttribute('data-s', 'load'); st.textContent = '… 查'
+        src.build(word).then(function (url) {
+          if (!url) { st.setAttribute('data-s', 'fail'); st.textContent = '✕ 无此词'; log('miss  commons ' + acc + '  ' + word); return }
+          play(url, btn, st)
+        })
+      })
+      pair.appendChild(b)
+    })
+    td1.appendChild(pair)
+    tr.appendChild(td1)
+
+    // 2) 有道 US / UK
+    var td2 = document.createElement('td')
+    var pair2 = document.createElement('div')
+    pair2.style.display = 'flex'; pair2.style.gap = '6px'
+    ;[['y2', 'US', 2], ['y1', 'UK', 1]].forEach(function (spec) {
+      pair2.appendChild(cell(spec[1], function (btn, st) { play(youdao(word, spec[2]), btn, st) }))
+    })
+    td2.appendChild(pair2)
+    tr.appendChild(td2)
+
+    // 3) Google
+    var td3 = document.createElement('td')
+    td3.appendChild(cell('合成', function (btn, st) { play(google(word), btn, st) }))
+    tr.appendChild(td3)
+
+    // 4) 本机 TTS
+    var td4 = document.createElement('td')
+    var pair4 = document.createElement('div')
+    pair4.style.display = 'flex'; pair4.style.gap = '6px'
+    ;[['US', 'us'], ['UK', 'uk']].forEach(function (spec) {
+      pair4.appendChild(cell(spec[0], function (btn, st) { speak(word, spec[1], btn, st) }))
+    })
+    td4.appendChild(pair4)
+    tr.appendChild(td4)
+
+    tbody.appendChild(tr)
+  }
+
+  DEFAULT.forEach(addRow)
+
+  var input = document.getElementById('word')
+  function submit() {
+    if (!input.value.trim()) return
+    addRow(input.value)
+    input.value = ''
+    input.focus()
+  }
+  document.getElementById('add').addEventListener('click', submit)
+  input.addEventListener('keydown', function (e) { if (e.key === 'Enter') submit() })
+
+  log('就绪：浏览器 TTS 可用=' + (!!window.speechSynthesis) + '  已发现音色=' + voices.length)
+})()
+</script>
+</body>
+</html>

@@ -1,0 +1,576 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>dsh-word-learn 学习页 · 重构预览</title>
+<style>
+  :root{
+    --bg-base:#FAFAF9;
+    --bg-layer-1:#FFFFFF;
+    --bg-layer-2:#F4F4F2;
+    --bg-skeleton:#EAEAE7;
+    --border-l1:#EDEDEA;
+    --border-l2:#E2E2DE;
+    --label-primary:#191917;
+    --label-secondary:#5A5A55;
+    --label-tertiary:#8E8E87;
+    --brand:#0D9488;
+    --brand-soft:rgba(13,148,136,.10);
+    --accent:#D97706;
+    --accent-soft:rgba(217,119,6,.10);
+    --danger:#DC2626;
+    --hover:#F2F2EF;
+    --shadow-sm:0 1px 2px rgba(24,24,20,.05);
+    --shadow-md:0 1px 2px rgba(24,24,20,.04), 0 12px 28px -18px rgba(24,24,20,.35);
+  }
+  [data-theme="dark"]{
+    --bg-base:#111110;
+    --bg-layer-1:#1A1A18;
+    --bg-layer-2:#232320;
+    --bg-skeleton:#2B2B27;
+    --border-l1:#26261F;
+    --border-l2:#33332C;
+    --label-primary:#F3F3EE;
+    --label-secondary:#B4B4AC;
+    --label-tertiary:#85857C;
+    --brand:#2DD4BF;
+    --brand-soft:rgba(45,212,191,.14);
+    --accent:#F59E0B;
+    --accent-soft:rgba(245,158,11,.14);
+    --danger:#F87171;
+    --hover:#232320;
+    --shadow-sm:0 1px 2px rgba(0,0,0,.4);
+    --shadow-md:0 1px 2px rgba(0,0,0,.35), 0 12px 28px -18px rgba(0,0,0,.9);
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{
+    background:var(--bg-base);color:var(--label-primary);
+    font:13.5px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+    -webkit-font-smoothing:antialiased;
+    transition:background .2s ease,color .2s ease;
+  }
+  button{font:inherit;color:inherit}
+  :focus-visible{outline:2px solid var(--brand);outline-offset:2px;border-radius:8px}
+
+  /* ── 预览外壳（不属于产品 UI） */
+  .stage{min-height:100%;display:flex;flex-direction:column}
+  .bar{
+    display:flex;align-items:center;gap:10px;padding:10px 18px;
+    border-bottom:1px solid var(--border-l1);background:var(--bg-layer-1);
+    position:sticky;top:0;z-index:9;flex-wrap:wrap;
+  }
+  .bar b{font-size:12.5px;font-weight:650;letter-spacing:.01em}
+  .bar .hint{font-size:11.5px;color:var(--label-tertiary);margin-right:auto}
+  .seg{display:flex;background:var(--bg-layer-2);border-radius:9px;padding:2px;gap:2px}
+  .seg button{
+    border:0;background:transparent;padding:5px 13px;border-radius:7px;
+    font-size:12px;cursor:pointer;color:var(--label-secondary);transition:background .14s,color .14s;
+  }
+  .seg button[aria-pressed="true"]{background:var(--bg-layer-1);color:var(--label-primary);box-shadow:var(--shadow-sm)}
+  .bar .ghost{
+    border:1px solid var(--border-l2);background:var(--bg-layer-1);border-radius:8px;
+    padding:5px 12px;font-size:12px;cursor:pointer;transition:background .14s;
+  }
+  .bar .ghost:hover{background:var(--hover)}
+  .pane{display:none;flex:1}
+  .pane.on{display:block}
+
+  /* ════════════════════════════════════════════════════
+     重构前（按现有 dashboard.js 的 CSS 原样复刻）
+     ════════════════════════════════════════════════════ */
+  .old{padding:20px 24px 40px}
+  .old-wrap{max-width:1080px;margin:0 auto}
+  .old-hd{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;margin-bottom:4px}
+  .old-hd h1{margin:0;font-size:19px;font-weight:650;letter-spacing:.01em}
+  .old-sub{color:var(--label-tertiary);font-size:12px}
+  .old-btn{
+    font:inherit;font-size:12px;padding:4px 11px;border-radius:7px;cursor:pointer;
+    border:1px solid var(--border-l2);background:var(--bg-layer-1);color:var(--label-primary);
+  }
+  .old-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin:16px 0}
+  .old-kpi{padding:13px 15px;border-radius:11px;background:var(--bg-layer-1);border:1px solid var(--border-l2)}
+  .old-kpi .n{font-size:26px;font-weight:660;line-height:1.15;font-variant-numeric:tabular-nums}
+  .old-kpi .l{font-size:11.5px;color:var(--label-tertiary);margin-top:3px}
+  .old-kpi .x{font-size:11px;color:var(--label-tertiary);margin-top:5px}
+  .old-kpi.hot .n{color:var(--accent)}
+  .old-sec{margin-top:22px}
+  .old-sec>h2{margin:0 0 10px;font-size:13.5px;font-weight:620;display:flex;align-items:baseline;gap:8px}
+  .old-sec>h2 .tip{font-size:11px;font-weight:400;color:var(--label-tertiary)}
+  .old-qrow{
+    display:flex;align-items:center;gap:11px;padding:10px 11px;border-radius:9px;
+    background:var(--bg-layer-1);border:1px solid var(--border-l2);
+  }
+  .old-qrow+.old-qrow{margin-top:7px}
+  .old-qrow .qw{font-weight:640;font-size:15px}
+  .old-qrow .qp{font-size:11.5px;color:var(--label-tertiary);font-family:ui-monospace,Menlo,monospace}
+  .old-qrow .qm{font-size:12px;color:var(--label-secondary);margin-top:2px}
+  .old-qrow .main{flex:1;min-width:0}
+  .old-tag{flex:none;font-size:10.5px;padding:1px 6px;border-radius:5px;background:var(--hover);color:var(--label-secondary)}
+  .old-note{font-size:11.5px;color:var(--label-tertiary);margin-top:9px}
+  .old-mark{position:absolute;left:0;right:0;border-top:2px dashed var(--danger);pointer-events:none}
+  .old-mark span{
+    position:absolute;right:8px;top:-10px;background:var(--danger);color:#fff;
+    font-size:10px;padding:1px 7px;border-radius:99px;white-space:nowrap;
+  }
+
+  /* ════════════════════════════════════════════════════
+     重构后
+     ════════════════════════════════════════════════════ */
+  .new{max-width:720px;margin:0 auto;padding:0 24px 56px}
+
+  /* 顶部：tab + 连续天数 */
+  .top{
+    display:flex;align-items:center;gap:14px;height:52px;
+    position:sticky;top:45px;background:color-mix(in srgb,var(--bg-base) 92%,transparent);
+    backdrop-filter:blur(8px);z-index:5;
+  }
+  .tabs{display:flex;gap:2px;margin-right:auto}
+  .tabs button{
+    border:0;background:transparent;padding:6px 12px;border-radius:8px;cursor:pointer;
+    font-size:13px;color:var(--label-tertiary);font-weight:500;transition:background .15s,color .15s;
+  }
+  .tabs button:hover{background:var(--hover);color:var(--label-secondary)}
+  .tabs button[aria-selected="true"]{color:var(--label-primary);font-weight:600;background:var(--bg-layer-2)}
+  .streak{
+    display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--label-secondary);
+    padding:4px 10px;border-radius:99px;background:var(--accent-soft);
+  }
+  .streak b{color:var(--accent);font-variant-numeric:tabular-nums}
+
+  /* 今日进度 */
+  .meter{margin-top:6px}
+  .meter .track{height:3px;border-radius:2px;background:var(--bg-skeleton);overflow:hidden}
+  .meter .track i{display:block;height:100%;border-radius:2px;background:var(--brand);transition:width .5s cubic-bezier(.22,1,.36,1)}
+  .meter .legend{
+    display:flex;justify-content:space-between;align-items:baseline;margin-top:9px;
+    font-size:12px;color:var(--label-tertiary);
+  }
+  .meter .legend b{color:var(--label-primary);font-size:14px;font-variant-numeric:tabular-nums}
+
+  /* 一次一词 —— 内容整体居中，评分键在下方，视线不用来回跳 */
+  .study{display:flex;flex-direction:column;justify-content:center;min-height:calc(100vh - 132px)}
+  [data-panel][hidden]{display:none!important}
+  .focus{
+    display:flex;flex-direction:column;align-items:center;justify-content:center;
+    text-align:center;padding:26px 0 10px;
+  }
+  .focus .word{
+    font-family:ui-serif,Georgia,"Songti SC",serif;
+    font-size:clamp(38px,6.2vw,54px);line-height:1.1;font-weight:600;letter-spacing:-.015em;
+    color:var(--label-primary);word-break:break-word;
+  }
+  .focus .phon{
+    margin-top:14px;display:flex;align-items:center;justify-content:center;gap:9px;
+    font-size:13px;color:var(--label-tertiary);font-family:ui-monospace,Menlo,monospace;
+  }
+  .pos{
+    font-family:-apple-system,sans-serif;font-style:italic;font-size:12px;
+    padding:1px 7px;border-radius:5px;background:var(--brand-soft);color:var(--brand);
+  }
+  .icon-btn{
+    width:30px;height:30px;display:grid;place-items:center;border-radius:8px;border:0;
+    background:transparent;color:var(--label-tertiary);cursor:pointer;transition:background .14s,color .14s;
+  }
+  .icon-btn:hover{background:var(--hover);color:var(--label-primary)}
+
+  /* 释义：先藏后揭 */
+  .reveal{margin-top:22px;min-height:152px;width:100%;display:flex;flex-direction:column;align-items:center;justify-content:center}
+  .reveal .veil{
+    display:inline-flex;align-items:center;gap:8px;border:1px dashed var(--border-l2);
+    background:var(--bg-layer-1);border-radius:10px;padding:9px 16px;cursor:pointer;
+    font-size:12.5px;color:var(--label-secondary);transition:background .15s,border-color .15s;
+  }
+  .reveal .veil:hover{background:var(--hover);border-color:var(--brand)}
+  .reveal .body{opacity:0;transform:translateY(4px);transition:opacity .22s ease,transform .22s ease;pointer-events:none}
+  .reveal[data-on="1"] .veil{display:none}
+  .reveal[data-on="1"] .body{opacity:1;transform:none;pointer-events:auto}
+  .meaning{font-size:17px;line-height:1.55;color:var(--label-primary)}
+  .meaning em{font-style:normal;color:var(--brand)}
+  .example{
+    margin-top:12px;font-size:13px;line-height:1.7;color:var(--label-secondary);
+    max-width:58ch;
+  }
+  .example i{color:var(--label-primary);font-style:normal}
+
+  kbd{
+    font-family:ui-monospace,Menlo,monospace;font-size:10.5px;line-height:1;
+    padding:3px 5px;border-radius:4px;border:1px solid var(--border-l2);
+    border-bottom-width:2px;background:var(--bg-layer-1);color:var(--label-tertiary);
+  }
+
+  /* 评分：一体分段，44px 目标 */
+  .rate{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;width:100%;margin-top:18px}
+  .rate button{
+    position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;
+    min-height:48px;padding:8px 4px;border-radius:11px;cursor:pointer;
+    border:1px solid var(--border-l2);background:var(--bg-layer-1);
+    transition:transform .12s ease,background .14s ease,border-color .14s ease,box-shadow .14s ease;
+  }
+  .rate button:hover{transform:translateY(-1px);box-shadow:var(--shadow-md)}
+  .rate button:active{transform:translateY(0) scale(.985)}
+  .rate .rl{font-size:13px;font-weight:600}
+  .rate .rk{font-size:10px;color:var(--label-tertiary)}
+  .rate button[data-tone="1"]:hover{border-color:var(--danger);background:color-mix(in srgb,var(--danger) 7%,var(--bg-layer-1))}
+  .rate button[data-tone="1"]:hover .rl{color:var(--danger)}
+  .rate button[data-tone="2"]:hover{border-color:var(--accent);background:var(--accent-soft)}
+  .rate button[data-tone="2"]:hover .rl{color:var(--accent)}
+  .rate button[data-tone="3"]:hover{border-color:var(--brand);background:var(--brand-soft)}
+  .rate button[data-tone="3"]:hover .rl{color:var(--brand)}
+  .rate button[data-tone="4"]:hover{border-color:var(--label-tertiary)}
+  .rate button.pressed{background:var(--bg-layer-2)}
+
+  .foot{
+    display:flex;align-items:center;justify-content:center;gap:8px;margin-top:22px;
+    font-size:11.5px;color:var(--label-tertiary);
+  }
+
+  /* 进度点：剩几个 */
+  .tail{margin-top:18px;display:flex;flex-direction:column;align-items:center;gap:12px;padding-bottom:6px}
+  .dots{display:flex;gap:4px;justify-content:center;flex-wrap:wrap;max-width:420px}
+  .dots i{width:6px;height:6px;border-radius:50%;background:var(--bg-skeleton)}
+  .dots i.done{background:var(--brand)}
+  .dots i.now{background:var(--label-primary);transform:scale(1.6)}
+
+  /* 词汇 tab */
+  .vocab{padding-top:14px}
+  .vocab .search{
+    display:flex;align-items:center;gap:9px;border:1px solid var(--border-l2);border-radius:10px;
+    padding:9px 12px;background:var(--bg-layer-1);color:var(--label-tertiary);font-size:12.5px;
+  }
+  .vlist{display:grid;grid-template-columns:1fr 1fr;gap:2px 18px;margin-top:16px}
+  .vrow{
+    display:flex;align-items:baseline;gap:8px;padding:7px 9px;border-radius:7px;cursor:pointer;
+    transition:background .12s ease;min-height:36px;
+  }
+  .vrow:hover{background:var(--hover)}
+  .vrow .w{font-weight:600;font-size:13.5px;flex:none}
+  .vrow .p{font-size:11px;color:var(--label-tertiary);font-family:ui-monospace,Menlo,monospace;flex:none}
+  .vrow .t{
+    flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+    font-size:12px;color:var(--label-secondary);
+  }
+  .vrow .due{flex:none;font-size:10.5px;color:var(--label-tertiary);font-variant-numeric:tabular-nums}
+  .vrow.due-now .due{color:var(--accent);font-weight:600}
+
+  /* 数据 tab */
+  .stats{padding-top:16px;display:flex;flex-direction:column;gap:14px}
+  .kpi-row{display:grid;grid-template-columns:repeat(4,1fr);gap:2px;background:var(--border-l1);border-radius:11px;overflow:hidden;border:1px solid var(--border-l1)}
+  .kpi-row div{background:var(--bg-layer-1);padding:12px 14px}
+  .kpi-row .n{font-size:20px;font-weight:650;line-height:1.2;font-variant-numeric:tabular-nums}
+  .kpi-row .l{font-size:11px;color:var(--label-tertiary);margin-top:2px}
+  .panel{border:1px solid var(--border-l1);border-radius:11px;background:var(--bg-layer-1);padding:14px 16px}
+  .panel>h3{margin:0 0 12px;font-size:12px;font-weight:600;color:var(--label-secondary);display:flex;justify-content:space-between;align-items:baseline}
+  .panel>h3 span{font-weight:400;color:var(--label-tertiary);font-size:11px}
+  .bars{display:flex;align-items:flex-end;gap:4px;height:62px}
+  .bars div{flex:1;border-radius:3px 3px 0 0;background:var(--brand);opacity:.82;min-height:2px;position:relative}
+  .bars div.f{opacity:.35}
+  .axis{display:flex;gap:4px;margin-top:5px}
+  .axis span{flex:1;text-align:center;font-size:9.5px;color:var(--label-tertiary)}
+  .ab{display:flex;flex-direction:column;gap:9px}
+  .ab .r{display:flex;align-items:center;gap:11px}
+  .ab .r .nm{width:34px;flex:none;font-size:12px;color:var(--label-secondary)}
+  .ab .r .h{flex:1;display:flex;gap:2px;align-items:flex-end;height:18px}
+  .ab .r .h i{flex:1;border-radius:2px 2px 0 0;background:var(--brand);min-height:2px}
+  .ab .r .v{width:48px;flex:none;text-align:right;font-size:10.5px;color:var(--label-tertiary);font-variant-numeric:tabular-nums}
+
+  @media (max-width:620px){
+    .new{padding:0 16px 48px}
+    .vlist{grid-template-columns:1fr}
+    .kpi-row{grid-template-columns:1fr 1fr}
+    .rate{gap:6px}
+    .top{top:0}
+  }
+  @media (prefers-reduced-motion:reduce){
+    *{animation:none!important;transition:none!important}
+  }
+</style>
+</head>
+<body>
+<div class="stage">
+  <div class="bar">
+    <b>dsh-word-learn 学习页</b>
+    <span class="hint">开关切换对比 · 按 Space 揭释义 · 1–4 评分</span>
+    <div class="seg" role="group" aria-label="视图切换">
+      <button data-view="before" aria-pressed="false">现状</button>
+      <button data-view="after" aria-pressed="true">重构后</button>
+    </div>
+    <button class="ghost" id="themeBtn">深色</button>
+  </div>
+
+  <!-- ══════════════ 现状 ══════════════ -->
+  <div class="pane" id="pane-before">
+    <div class="old">
+      <div class="old-wrap">
+        <div class="old-hd">
+          <h1>英语学习</h1>
+          <span class="old-sub">已记录 23 天 · 1,284 个词</span>
+          <span style="margin-left:auto"><button class="old-btn">刷新</button></span>
+        </div>
+
+        <div class="old-kpis">
+          <div class="old-kpi hot"><div class="n">37</div><div class="l">今日待复习</div><div class="x">今天已复习 12 次</div></div>
+          <div class="old-kpi"><div class="n">19</div><div class="l">明日到期</div><div class="x">按当前排期</div></div>
+          <div class="old-kpi"><div class="n">642</div><div class="l">已开始学习</div><div class="x">共 1,284 个词</div></div>
+          <div class="old-kpi"><div class="n">78%</div><div class="l">复习正确率</div><div class="x">共 431 次作答</div></div>
+        </div>
+
+        <div class="old-sec">
+          <h2>今日复习 <span class="tip">63 个待办</span></h2>
+          <div id="oldRows"></div>
+          <div class="old-note">还有 13 个未显示</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════════ 重构后 ══════════════ -->
+  <div class="pane on" id="pane-after">
+    <div class="new">
+      <div class="top">
+        <div class="tabs" role="tablist" aria-label="学习页视图">
+          <button role="tab" aria-selected="true" data-tab="study">学习</button>
+          <button role="tab" aria-selected="false" data-tab="vocab">词汇</button>
+          <button role="tab" aria-selected="false" data-tab="stats">数据</button>
+        </div>
+        <span class="streak">连续 <b>6</b> 天</span>
+      </div>
+
+      <!-- 学习 -->
+      <section data-panel="study" class="study">
+        <div class="meter">
+          <div class="track"><i style="width:32%"></i></div>
+          <div class="legend">
+            <span><b>12</b> / 37 今天</span>
+            <span>还剩 25 个 · 约 4 分钟</span>
+          </div>
+        </div>
+
+        <div class="focus">
+          <div class="word" lang="en">ephemeral</div>
+          <div class="phon">
+            /ɪˈfem.ər.əl/
+            <button class="icon-btn" aria-label="播放发音">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5 6 9H3v6h3l5 4V5Z"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/><path d="M18.5 6a9 9 0 0 1 0 12"/></svg>
+            </button>
+            <span class="pos">adj.</span>
+          </div>
+
+          <div class="reveal" id="reveal" data-on="0">
+            <button class="veil" id="veil">
+              先想一想，再显示释义 <kbd>Space</kbd>
+            </button>
+            <div class="body">
+              <div class="meaning"><em>短暂的</em>，转瞬即逝的 —— 存在时间极短的事物。</div>
+              <div class="example">
+                <i>Fame in this industry is </i><b>ephemeral</b><i>; the work is what lasts.</i><br>
+                这行里的名气是转瞬即逝的，留下的是作品。
+              </div>
+            </div>
+          </div>
+
+          <div class="rate" role="group" aria-label="回忆评分">
+            <button data-tone="1"><span class="rl">忘了</span><span class="rk">1</span></button>
+            <button data-tone="2"><span class="rl">勉强</span><span class="rk">2</span></button>
+            <button data-tone="3"><span class="rl">记得</span><span class="rk">3</span></button>
+            <button data-tone="4"><span class="rl">太简单</span><span class="rk">4</span></button>
+          </div>
+        </div>
+
+        <div class="tail">
+          <div class="dots" aria-hidden="true">
+            <i class="done"></i><i class="done"></i><i class="done"></i><i class="done"></i><i class="done"></i><i class="done"></i><i class="done"></i><i class="done"></i><i class="done"></i><i class="done"></i><i class="done"></i><i class="done"></i><i class="now"></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i>
+          </div>
+          <div class="foot"><kbd>1</kbd>–<kbd>4</kbd> 评分 · <kbd>J</kbd> 跳过 · 今天没有到期的词时会提示预习</div>
+        </div>
+      </section>
+
+      <!-- 词汇 -->
+      <section data-panel="vocab" hidden>
+        <div class="vocab">
+          <div class="search">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+            在 1,284 个词里搜索
+          </div>
+          <div class="vlist" id="vlist"></div>
+        </div>
+      </section>
+
+      <!-- 数据 -->
+      <section data-panel="stats" hidden>
+        <div class="stats">
+          <div class="kpi-row">
+            <div><div class="n">642</div><div class="l">已开始 / 1284</div></div>
+            <div><div class="n">78%</div><div class="l">正确率</div></div>
+            <div><div class="n">19</div><div class="l">明日到期</div></div>
+            <div><div class="n">6</div><div class="l">连续天数</div></div>
+          </div>
+
+          <div class="panel">
+            <h3>未来 14 天到期 <span>按当前排期</span></h3>
+            <div class="bars" id="forecast"></div>
+            <div class="axis" id="forecastAxis"></div>
+          </div>
+
+          <div class="panel">
+            <h3>近 14 天复习量</h3>
+            <div class="bars" id="activity"></div>
+            <div class="axis" id="activityAxis"></div>
+          </div>
+
+          <div class="panel ab">
+            <h3>能力画像 <span>0–5 分，条长是词数</span></h3>
+            <div class="r"><span class="nm">认得</span><span class="h" id="z1"></span><span class="v">均 4.3</span></div>
+            <div class="r"><span class="nm">意思</span><span class="h" id="z2"></span><span class="v">均 3.1</span></div>
+            <div class="r"><span class="nm">能写</span><span class="h" id="z3"></span><span class="v">均 1.8</span></div>
+            <div class="r"><span class="nm">能听</span><span class="h" id="z4"></span><span class="v">均 2.2</span></div>
+            <div class="r"><span class="nm">读准</span><span class="h" id="z5"></span><span class="v">均 2.9</span></div>
+          </div>
+        </div>
+      </section>
+    </div>
+  </div>
+</div>
+
+<script>
+const WORDS = [
+  ['ephemeral','/ɪˈfem.ər.əl/','短暂的，转瞬即逝的',0],
+  ['ubiquitous','/juːˈbɪk.wɪ.təs/','无处不在的',0],
+  ['mitigate','/ˈmɪt.ɪ.ɡeɪt/','减轻，缓和（不良影响）',0],
+  ['caveat','/ˈkæv.i.æt/','提醒，限制性条件',1],
+  ['resilient','/rɪˈzɪl.i.ənt/','有韧性的，能快速恢复的',0],
+  ['cumbersome','/ˈkʌm.bə.səm/','笨重的，繁琐的',2],
+  ['ambiguous','/æmˈbɪɡ.ju.əs/','有歧义的，含糊不清的',3],
+  ['pragmatic','/præɡˈmæt.ɪk/','务实的，讲求实效的',0],
+  ['notwithstanding','/ˌnɒt.wɪθˈstæn.dɪŋ/','尽管，虽然',5],
+  ['intricate','/ˈɪn.trɪ.kət/','错综复杂的',1],
+  ['plausible','/ˈplɔː.zə.bəl/','看似可信的',0],
+  ['deteriorate','/dɪˈtɪə.ri.ə.reɪt/','恶化，变坏',4],
+  ['elucidate','/ɪˈluː.sɪ.deɪt/','阐明，解释清楚',0],
+  ['tenuous','/ˈten.ju.əs/','纤细的；站不住脚的',2],
+  ['meticulous','/məˈtɪk.jə.ləs/','一丝不苟的',0],
+  ['nonplussed','/nɒnˈplʌst/','困惑的，不知所措的',1],
+  ['penchant','/ˈpɒ̃.ʃɒ̃/','嗜好，偏好',6],
+  ['superfluous','/suːˈpɜː.flu.əs/','多余的，过剩的',0],
+  ['tacit','/ˈtæs.ɪt/','心照不宣的，默许的',3],
+  ['vicissitude','/vɪˈsɪs.ɪ.tjuːd/','（命运的）变迁起伏',9],
+];
+
+/* ── 现状：复刻现有的复习行 ── */
+const oldRows = document.getElementById('oldRows');
+WORDS.slice(0,10).forEach(([w,p,t])=>{
+  const row = document.createElement('div');
+  row.className = 'old-qrow';
+  row.innerHTML = `
+    <div class="main">
+      <div style="display:flex;align-items:baseline;gap:8px;flex-wrap:wrap">
+        <span class="qw">${w}</span>
+        <span class="qp">${p}</span>
+        <span class="old-tag">高频 3000</span>
+      </div>
+      <div class="qm">${t}</div>
+    </div>
+    <div class="side" style="display:flex;gap:5px">
+      <button class="old-btn" style="padding:3px 9px;font-size:11.5px">忘了</button>
+      <button class="old-btn" style="padding:3px 9px;font-size:11.5px">勉强</button>
+      <button class="old-btn" style="padding:3px 9px;font-size:11.5px">记得</button>
+      <button class="old-btn" style="padding:3px 9px;font-size:11.5px">太简单</button>
+    </div>`;
+  oldRows.appendChild(row);
+});
+
+/* ── 重构后：词汇列表 ── */
+const vlist = document.getElementById('vlist');
+WORDS.slice(0,18).forEach(([w,p,t,due])=>{
+  const row = document.createElement('div');
+  row.className = 'vrow' + (due === 0 ? ' due-now' : '');
+  row.innerHTML = `
+    <span class="w">${w}</span>
+    <span class="p">${p}</span>
+    <span class="t">${t}</span>
+    <span class="due">${due === 0 ? '今天' : due + ' 天后'}</span>`;
+  vlist.appendChild(row);
+});
+
+/* ── 重构后：柱状图 ── */
+function bars(el, axisEl, data){
+  const max = Math.max(...data);
+  data.forEach((n,i)=>{
+    const b = document.createElement('div');
+    b.style.height = Math.max(2,(n/max)*100) + '%';
+    if(n===0) b.style.opacity = .18;
+    b.title = n + ' 个';
+    el.appendChild(b);
+  });
+  data.forEach((n,i)=>{
+    const s = document.createElement('span');
+    const d = new Date(Date.now() + i*86400000);
+    s.textContent = (d.getMonth()+1) + '/' + d.getDate();
+    axisEl.appendChild(s);
+  });
+}
+bars(document.getElementById('forecast'), document.getElementById('forecastAxis'),
+  [19,24,11,6,3,8,14,21,9,4,2,7,12,5]);
+bars(document.getElementById('activity'), document.getElementById('activityAxis'),
+  [4,7,0,11,9,15,6,3,12,18,7,0,9,12]);
+
+/* ── 能力画像 ── */
+const AB = [[10,26,42,88,120,90],[30,52,70,84,60,30],[120,90,58,26,10,4],[96,74,48,22,8,3],[70,86,60,34,14,5]];
+AB.forEach((buckets,i)=>{
+  const host = document.getElementById('z'+(i+1));
+  const max = Math.max(...buckets);
+  buckets.forEach(n=>{
+    const b = document.createElement('i');
+    b.style.height = Math.max(2,(n/max)*100) + '%';
+    host.appendChild(b);
+  });
+});
+
+/* ── 交互 ── */
+document.querySelectorAll('.seg button').forEach(btn=>{
+  btn.addEventListener('click',()=>{
+    document.querySelectorAll('.seg button').forEach(b=>b.setAttribute('aria-pressed', String(b===btn)));
+    document.getElementById('pane-before').classList.toggle('on', btn.dataset.view === 'before');
+    document.getElementById('pane-after').classList.toggle('on', btn.dataset.view === 'after');
+  });
+});
+
+const reveal = document.getElementById('reveal');
+document.getElementById('veil').addEventListener('click',()=>{
+  reveal.dataset.on = '1';
+});
+
+document.querySelectorAll('.tabs button').forEach(btn=>{
+  btn.addEventListener('click',()=>{
+    document.querySelectorAll('.tabs button').forEach(b=>b.setAttribute('aria-selected', String(b===btn)));
+    document.querySelectorAll('[data-panel]').forEach(p=>{
+      p.hidden = p.dataset.panel !== btn.dataset.tab;
+    });
+  });
+});
+
+document.querySelectorAll('.rate button').forEach(btn=>{
+  btn.addEventListener('click',()=>{
+    btn.classList.add('pressed');
+    setTimeout(()=>btn.classList.remove('pressed'),180);
+    reveal.dataset.on = '0';
+  });
+});
+
+document.getElementById('themeBtn').addEventListener('click',(e)=>{
+  const dark = document.documentElement.getAttribute('data-theme') === 'dark';
+  document.documentElement.setAttribute('data-theme', dark ? 'light' : 'dark');
+  e.target.textContent = dark ? '深色' : '浅色';
+});
+
+document.addEventListener('keydown',(e)=>{
+  if(e.code === 'Space'){ e.preventDefault(); reveal.dataset.on = '1'; }
+  if(['1','2','3','4'].includes(e.key)){
+    const b = document.querySelector('.rate button[data-tone="'+e.key+'"]');
+    if(b){ b.classList.add('pressed'); setTimeout(()=>b.classList.remove('pressed'),180); }
+  }
+});
+</script>
+</body>
+</html>
