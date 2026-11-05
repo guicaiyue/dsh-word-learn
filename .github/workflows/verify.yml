@@ -1,0 +1,45 @@
+name: verify
+
+# 为什么只有一件事：本仓库的「正确性」全在 `pnpm verify` 里（构建 → 产物契约 → 类型/lint/格式/
+# 依赖图/环 → 单测/组件/legacy 集成）。CI 不该复制第二套判据 —— 只要保证同一台机器上
+# `pnpm verify` 绿，CI 绿。
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: verify-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.28.2
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      # 测试会写用户库：统一指到一次性目录，绝不碰真实 $DSH_HOME。
+      # （脚本自己也会兜底 mkdtemp，这里是「明确告诉它别用默认路径」的第二道闸。）
+      - name: verify
+        run: pnpm verify
+        env:
+          DSH_HOME: ${{ runner.temp }}/dsh-home-ci
+          CI: 'true'
+
+      # 产物契约单独留档，出问题能直接看出是壳/体积/sourcemap 哪一项坏了
+      - name: artifact report
+        if: always()
+        run: node scripts/check-artifact.mjs
