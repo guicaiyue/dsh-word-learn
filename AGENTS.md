@@ -25,7 +25,7 @@ pnpm format        # 再统一排版
 
 单跑某个回归脚本：`node scripts/test-routes.mjs`（脚本自己造临时 `DSH_HOME`，不碰真实库）。
 
-`pnpm check:cycles` 由 `pnpm check` 带跑（`scripts/check-cycles.mjs`）；`pnpm test:unit` 只跑
+`pnpm deps:check`（dependency-cruiser）带跑环检测与分层方向；`pnpm test:unit` 只跑
 `tests/**/*.test.mjs`，`scripts/test-*.mjs` 归 `pnpm test:legacy`。
 
 ## 2. 改 X 去哪里
@@ -71,7 +71,7 @@ pnpm format        # 再统一排版
   任何会写库的测试/脚本必须先 `mkdtemp` 临时 `DSH_HOME`（见 CONVENTIONS §9.2）。
 - **不许改 `DESIGN.md` 的历史结论**：那是决策与实测记录。新结论只能追加，并注明日期。
 - **不许为过 lint 加 `eslint-disable`**。确需例外时，必须写原因 + 到期条件，并说明为什么规则不适用。
-- **不许制造 import 环**：`pnpm check:cycles`（挂在 `pnpm check`/`verify` 里）会打印完整环路径。
+- **不许制造 import 环**：`pnpm deps:check`（dependency-cruiser 的 `no-circular`，挂在 `pnpm check`/`verify` 里）会打印完整环路径。
 - **不许改 `cordis.patch.yml` 的语义**（id/name/insert 结构）。它只是挂载声明；
   改它触发 HMR 是运维手段，不要把语义改掉。
 - **构建是唯一入口**：客户端产物只能由 `pnpm build`（tsdown）从 `src/client/**` 生成，`dist/` 不入库；

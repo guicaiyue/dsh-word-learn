@@ -55,7 +55,6 @@
 
 ```bash
 pnpm lint                 # 确认目标文件不再超限、新文件没超 400
-pnpm check:cycles         # 拆完最容易绕回自己，先看有没有环
 pnpm test:unit            # 单测仍绿
 pnpm test:legacy          # 端到端仍绿（路由/前端判定受影响时）
 pnpm verify

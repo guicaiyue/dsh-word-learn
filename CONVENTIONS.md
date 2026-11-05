@@ -230,7 +230,7 @@ const limit = intParam(url, 'limit', { fallback: 200, min: 1, max: 500, floor: t
 `lib/` 之间、以及 `tests/`/`scripts/` 对 `lib/` 的引用，都不许成环。环会让「谁依赖谁」失去方向：
 拆模块时绕一圈又拆回去，改 A 会莫名影响 B，单测也不得不整包跑。
 
-- 门禁：`pnpm check:cycles`（`scripts/check-cycles.mjs`，遍历静态 `import` 与动态 `import()`，
+- 门禁：`pnpm deps:check`（dependency-cruiser `no-circular`，遍历静态 `import` 与动态 `import()`，
   打印完整环路径并 exit 1），已挂进 `pnpm check` → `pnpm verify`；
 - 为什么不用 ESLint 插件：ESLint 10 下 `eslint-plugin-import-x` 4.17.1 的 `no-cycle` 实测对
   故意造出的 `a.mjs ↔ b.mjs` 环不报错（resolver-next / 旧 node resolver 都试过），已移除；
@@ -458,7 +458,7 @@ const limit = intParam(url, 'limit', { fallback: 200, min: 1, max: 500, floor: t
 | `pnpm test:unit`          | `node --test "tests/**/*.test.mjs"`                      | 改完逻辑             |
 | `pnpm test:unit:coverage` | 单测 + 覆盖率门槛（http/text/models）                    | 改纯函数或模型层     |
 | `pnpm test:legacy`        | `node scripts/test-all.mjs`（收编 `scripts/test-*.mjs`） | 改路由/前端判定/排期 |
-| `pnpm check:cycles`       | `scripts/check-cycles.mjs`（lib/ import 环）             | 拆/并模块后          |
+| `pnpm deps:check`         | dependency-cruiser（环 + 分层方向）                      | 拆/并模块后          |
 | `pnpm verify`             | `check`（lint + format:check + 环检测）+ 上面三个        | **交付前唯一验收**   |
 
 `tests/` 放 `node:test` 单测（`*.test.mjs`），覆盖纯函数与模块契约；
@@ -515,7 +515,7 @@ const limit = intParam(url, 'limit', { fallback: 200, min: 1, max: 500, floor: t
 - [ ] 新增行为有测试；修的 bug 有回归断言（且能说明它之前为什么红）。
 - [ ] 没有新增 `eslint-disable`（确需例外时写明原因 + 到期条件，见 §4.4）。
 - [ ] 没有调大 `CODE_BUDGET`；超预算已按 §4.3 拆分。
-- [ ] `pnpm check:cycles` 无环（已包含在 `pnpm verify` 的 `check` 里）。
+- [ ] `pnpm deps:check` 无环（已包含在 `pnpm verify` 的 `check` 里）。
 - [ ] `pnpm lint:fix` 与 `pnpm format` 已跑，`pnpm format:check` 通过。
 - [ ] `pnpm verify` 全绿，并保留输出。
 - [ ] 注释与代码一致，过时注释已删改。

@@ -165,7 +165,6 @@ pnpm lint:fix
 pnpm format        # prettier --write .
 pnpm format:check
 pnpm deps:check    # dependency-cruiser：环 + 分层方向 + 客户端不碰 node: 内建
-pnpm check:cycles  # 旧的正则版环检测（阶段 4 删除，过渡期与 deps:check 并存）
 
 # 单元测试（tests/，node:test；加载 dist/client.js 构建产物）
 pnpm test:unit

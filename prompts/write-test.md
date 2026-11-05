@@ -59,7 +59,6 @@
 node scripts/test-<新脚本>.mjs   # legacy：必须能单跑
 pnpm test:unit                   # tests/unit 下的单测（现 11 个文件、110 条）
 pnpm test:legacy                 # 确认已注册进 test-all
-pnpm check:cycles                # 新增/移动文件后先看 import 环
 pnpm verify                      # 唯一验收
 ```
 
