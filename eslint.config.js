@@ -57,33 +57,16 @@ export default [
       'lab/**',
       'locale/**',
       'dist/**',
+      'coverage/**',
       'lib/host/**',
       '**/*.min.js',
       // TS/TSX 由 tsc（tsconfig.json 的 noUnusedLocals 等）负责类型与未用检查；
       // ESLint 没有配 @typescript-eslint parser，强行 lint 只会拿到「0 条规则」的假绿。
       '**/*.ts',
       '**/*.tsx',
+      // 宿主侧源码（src/host/**）全部是 TS：正确性由 tsc 双投影 + dependency-cruiser 的
+      // 分层规则守；ESLint 没有 @typescript-eslint parser，强行 lint 只会得到「0 条规则」的假绿。
     ],
-  },
-
-  // ---- 宿主侧：Node ESM ------------------------------------------------------
-  {
-    files: ['lib/**/*.{js,mjs}'],
-    ...nodeZone,
-    rules: {
-      ...baseRules,
-      'no-restricted-imports': [
-        'error',
-        {
-          patterns: [
-            {
-              group: ['**/src/client/**', '../src/client/**', './src/client/**'],
-              message: '宿主侧不许 import src/client/：那是浏览器产物源码。',
-            },
-          ],
-        },
-      ],
-    },
   },
 
   // ---- 浏览器侧构建源码：ESM + 浏览器全局 -------------------------------------

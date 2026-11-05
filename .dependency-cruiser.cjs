@@ -2,6 +2,7 @@
 //
 // 为什么换：正则只匹配 import，真实仓库漏了 6 条 `export ... from` 边，还硬编码只扫
 // lib/；dependency-cruiser 认得 TS/别名/动态 import/require，15/15 形态检出，且更快。
+// 阶段 3 起宿主源码搬到 src/host/**（编译产物在 lib/host/**，已被 exclude），规则目标随之改名。
 //
 // 这里的规则只做三件**能对应真实缺陷**的事：环、分层方向、客户端不碰 Node 内建。
 module.exports = {
@@ -17,7 +18,7 @@ module.exports = {
       name: 'host-no-client',
       comment: '宿主侧不能 import 浏览器产物：那是经典 script，Node 里没有 window',
       severity: 'error',
-      from: { path: '^lib/' },
+      from: { path: '^src/host/' },
       to: { path: '^src/client/' },
     },
     {
@@ -25,7 +26,7 @@ module.exports = {
       comment: '浏览器侧不能 import 宿主代码：node:* / node:sqlite 在浏览器不存在',
       severity: 'error',
       from: { path: '^src/client/' },
-      to: { path: '^(lib|src/host)/' },
+      to: { path: '^src/host/' },
     },
     {
       name: 'client-no-node-builtin',
