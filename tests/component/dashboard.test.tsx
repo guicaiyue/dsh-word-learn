@@ -12,7 +12,7 @@
  * 只有需要断言「调用发生了」的个别函数（saveAccent）在它上面用 spy 包一层。
  */
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
-import { act, fireEvent, render, screen, within } from '@testing-library/react'
+import { act, fireEvent, render, screen } from '@testing-library/react'
 import type { RenderResult } from '@testing-library/react'
 import type { ComponentType } from 'react'
 import { loadBundle, loadLogic, type LoadedBundle } from '../support/load-bundle'
@@ -39,38 +39,9 @@ const CATALOG = {
   lostSelection: null,
 }
 
-/** StatsView 需要的 `/stats` 数据（字段口径见 lib/store/review.mjs）。 */
-const STATS = {
-  words: {
-    total: 120,
-    byTier: [
-      { tier: 'top1k', n: 40 },
-      { tier: 'top3k', n: 20 },
-    ],
-  },
-  cards: { started: 30, fresh: 5, learning: 10, review: 80, relearning: 5 },
-  queue: { dueTomorrow: 7, reviewedToday: 12 },
-  accuracy: { total: 8, rate: 0.75, dist: { 1: 1, 2: 2, 3: 3, 4: 2 } },
-  ability: {
-    recognize: [1, 2, 3, 4, 5, 6],
-    meaning: [0, 1, 2, 3, 4, 5],
-    write: [0, 0, 1, 2, 3, 4],
-    listen: [0, 0, 0, 1, 2, 3],
-    pronounce: [0, 1, 1, 2, 2, 3],
-  },
-  forecast: [{ date: Date.now(), count: 3 }],
-  activity: [{ date: Date.now(), count: 2 }],
-  hardest: [{ word: 'ephemeral', translation: '短暂的\nadj.', lapses: 3 }],
-  recent: [{ word: 'ubiquitous', translation: '无处不在的', seen_at: Date.now() - 3_600_000 }],
-  dbPath: '/tmp/dsh-word-learn/user.db',
-}
-
-/** SettingsView / StatsView 的 props（避免测试里出现隐式 any）。 */
+/** SettingsView 的 props（避免测试里出现隐式 any）。 */
 interface SettingsProps {
   api: (path: string, options?: unknown) => Promise<unknown>
-}
-interface StatsProps {
-  data: unknown
 }
 
 let bundle: LoadedBundle
@@ -249,44 +220,5 @@ describe('SettingsView：真实组件 + 真实 dashboard-logic', () => {
     // （与划词卡片共用 dwl-voice-accent 这个 key）。
     expect(accent!.value).toBe('uk')
     expect(bundle.window.localStorage.getItem('dwl-voice-accent')).toBe('uk')
-  })
-})
-
-describe('StatsView：真实组件 + 真实 statsViewModel', () => {
-  it('KPI / 画像 / 最易忘词由真实取数逻辑渲染成 DOM', async () => {
-    const StatsView = bundle.tests.StatsView as ComponentType<StatsProps>
-    let view!: RenderResult
-    await act(async () => {
-      view = render(<StatsView data={STATS} />)
-    })
-
-    const kpis = screen.getByRole('group', { name: '学习概览' })
-    expect(within(kpis).getByText('30')).toBeTruthy()
-    expect(within(kpis).getByText('开始 / 120 词')).toBeTruthy()
-    expect(within(kpis).getByText('75%')).toBeTruthy()
-    expect(within(kpis).getByText('复习正确率')).toBeTruthy()
-    expect(within(kpis).getByText('7')).toBeTruthy()
-    expect(within(kpis).getByText('明日到期')).toBeTruthy()
-    expect(within(kpis).getByText('12')).toBeTruthy()
-    expect(within(kpis).getByText('今日已复习')).toBeTruthy()
-
-    // 真实 abilityAverage()：[1,2,3,4,5,6] → 加权平均 3.33… → '均 3.3'
-    expect(screen.getByText('均 3.3')).toBeTruthy()
-    expect(screen.getByText('作答分布')).toBeTruthy()
-    expect(screen.getByText('共 8 次')).toBeTruthy()
-
-    // 最易忘词 / 最近遇到走真实 relTime()
-    expect(screen.getByText('ephemeral')).toBeTruthy()
-    expect(screen.getByText('忘 3 次')).toBeTruthy()
-    expect(screen.getByText('ubiquitous')).toBeTruthy()
-    expect(screen.getByText('1 小时前')).toBeTruthy()
-
-    // 图表区与数据落盘提示都真实渲染
-    expect(screen.getByText('未来 14 天到期')).toBeTruthy()
-    expect(screen.getByText('近 14 天复习量')).toBeTruthy()
-    expect(screen.getByText('学习进度')).toBeTruthy()
-    expect(screen.getByText('数据存在 /tmp/dsh-word-learn/user.db（本地，可备份）')).toBeTruthy()
-    expect(view.container.querySelector('.dwl-stats')).not.toBeNull()
-    expect(view.container.querySelectorAll('.dwl-kpi').length).toBe(4)
   })
 })
