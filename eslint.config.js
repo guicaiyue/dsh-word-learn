@@ -26,9 +26,14 @@ const CODE_BUDGET = {
     'lib/r5.mjs': 380,
     'lib/schedule.mjs': 300,
     'lib/dict.mjs': 260,
-    'assets/dashboard.js': 3900,
+    'assets/dashboard.js': 3000,
+    // 学习页样式：CSS 模板串逐字节搬自 dashboard.js（约 500 代码行），
+    // 单文件超默认 400；拆成两个文件只会把一段 CSS 割裂，故按实际值单列预算。
+    'assets/dashboard-style.js': 509,
     'assets/annotate.js': 1300,
-    'assets/wordcard.js': 1030,
+    // 划词卡拆成三段后只剩装配/请求/选区判定（视图与样式在 wordcard-card/style，
+    // 两者走默认 400）；这里按实际值 520 留 20 行余量，只降不升。
+    'assets/wordcard.js': 540,
     'scripts/test-routes.mjs': 680,
     'scripts/test-r5.mjs': 590,
     'scripts/test-annotate.mjs': 590,

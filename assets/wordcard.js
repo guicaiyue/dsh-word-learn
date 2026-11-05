@@ -5,7 +5,8 @@
  *       + 朗读整句，再列出候选词让用户挑。
  *
  * 纯原生实现，不依赖 DSH 内部模块（硬约束：不许 require 客户端包）。
- * 样式全部收在下面的 CSS 字符串里，颜色只走主题变量 + 自带明暗两套。
+ * 样式常量在 wordcard-style.js（window.__dwlWordcardStyle），卡片视图在
+ * wordcard-card.js（window.__dwlWordcardCard）；颜色只走主题变量 + 自带明暗两套。
  *
  * 交互设计的两条依据（来自用户的实际处境）：
  *   1. 用户说"感觉全是生词，但又好像没那么生词" → 卡片必须**给出分级**，
@@ -18,22 +19,14 @@
   if (window.__dshWordLearn) return
   window.__dshWordLearn = true
 
-  // 生效范围 / 排除范围 / 语音降级这些纯判定集中在 core.js（注入行里排在前面）。
-  // 万一顺序异常（旧页面缓存了旧注入行）就静默不装卡片：页面其它功能不受影响，
+  // 生效范围 / 排除范围 / 语音降级这些纯判定集中在 core.js（注入行里排在前面）；
+  // 卡片的 DOM 构建/渲染/定位在 wordcard-card.js，样式常量在 wordcard-style.js。
+  // 万一注入顺序异常（旧页面缓存了旧注入行）就静默不装卡片：页面其它功能不受影响，
   // 硬刷新拿到新注入行即恢复 —— 绝不在这里重复实现一份判定，避免口径漂移。
   const core = window.__dwlCore
-  if (!core) return
-  const {
-    inConversation,
-    inEditable,
-    VOICE_MISSING,
-    voiceModule,
-    voiceButtonAttrs,
-    voiceErrorText,
-    isAbort,
-    stopSpeaking,
-    speakText,
-  } = core
+  const CARD = window.__dwlWordcardCard
+  if (!core || !CARD) return
+  const { inConversation, inEditable, voiceErrorText, isAbort, stopSpeaking, speakText } = core
 
   const API = {
     lookup: '/dsh-word-learn/lookup',
@@ -52,243 +45,8 @@
   const SPEAK_TEXT_MAX = 600
 
   // ------------------------------------------------------------ 样式
-  //
-  // 颜色一律优先取 DSH 自己的主题令牌（--dsw-alias-*），拿不到才用自带兜底值。
-  //
-  // 为什么必须这样：DSH 的主题是**运行时把令牌写成 body 上的 CSS 变量**实现的，
-  // 而且深色模式的标记是 body[data-ds-dark-theme]（不是 data-theme="dark"）。
-  // 我最初按 data-theme 判断，结果深色模式下卡片仍然是浅色底 —— 在深色界面里
-  // 会白得刺眼。改用令牌后，主题切换由 DSH 自己驱动，我不需要跟着猜。
-  //
-  // 兜底值分两套（浅/深），只在令牌缺失时生效（例如脱离 DSH 单独看预览页）。
-  const CSS = [
-    '.dwl-card{',
-    '  --dwl-bg:var(--dsw-alias-bg-overlay,#ffffff);',
-    '  --dwl-fg:var(--dsw-alias-label-primary,#1f2328);',
-    '  --dwl-muted:var(--dsw-alias-label-tertiary,#6b7280);',
-    '  --dwl-muted2:var(--dsw-alias-label-secondary,#4b5563);',
-    '  --dwl-border:var(--dsw-alias-border-l2,rgba(15,23,42,.15));',
-    '  --dwl-hover:var(--dsw-alias-interactive-bg-hover,rgba(15,23,42,.08));',
-    '  --dwl-accent:var(--dsw-alias-brand-primary,#2563eb);',
-    '  --dwl-accent-soft:var(--dsw-alias-interactive-bg-hover-accent,rgba(37,99,235,.10));',
-    '  --dwl-skel:var(--dsw-alias-bg-skeleton,rgba(15,23,42,.07));',
-    '  --dwl-err:var(--dsw-alias-state-error-primary,#dc2626);',
-    '  --dwl-ok:var(--dsw-alias-state-success-primary,#16a34a);',
-    '  --dwl-warn:var(--dsw-alias-state-warn-primary,#d97706);',
-    '  --dwl-shadow:var(--dsw-shadow-lv3,0 12px 32px -10px rgba(15,23,42,.28),0 2px 8px -2px rgba(15,23,42,.12));',
-    '  --dwl-radius:var(--dsw-radius-l,14px);',
-    '  position:fixed;z-index:2147483000;box-sizing:border-box;',
-    '  width:max-content;min-width:280px;max-width:min(560px,calc(100vw - 24px));',
-    '  font-family:var(--dsw-font-family,var(--dsh-font-family-text,-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif));',
-    '  font-size:13.5px;line-height:1.62;text-align:left;color:var(--dwl-fg);',
-    '  background:var(--dwl-bg);border:1px solid var(--dwl-border);border-radius:var(--dwl-radius);',
-    '  box-shadow:var(--dwl-shadow);overflow:hidden;',
-    '  animation:dwlIn .16s cubic-bezier(.2,.8,.2,1);',
-    '}',
-    // 深色兜底：DSH 用 body[data-ds-dark-theme] 标记深色（令牌已自动翻转，
-    // 这里只是给"令牌缺失"的情况一套深色兜底值）。两个选择器都写，
-    // 后者兼容脱离 DSH 的独立预览页。
-    'body[data-ds-dark-theme] .dwl-card,.dwl-card[data-theme="dark"]{',
-    '  --dwl-bg:var(--dsw-alias-bg-layer-3,#1c1f26);',
-    '  --dwl-fg:var(--dsw-alias-label-primary,#e6e8eb);',
-    '  --dwl-muted:var(--dsw-alias-label-tertiary,#98a1ae);',
-    '  --dwl-muted2:var(--dsw-alias-label-secondary,#b6bdc7);',
-    '  --dwl-border:var(--dsw-alias-border-l2,rgba(255,255,255,.13));',
-    '  --dwl-hover:var(--dsw-alias-interactive-bg-hover,rgba(255,255,255,.10));',
-    '  --dwl-accent:var(--dsw-alias-brand-primary,#7aa2f7);',
-    '  --dwl-accent-soft:var(--dsw-alias-interactive-bg-hover-accent,rgba(122,162,247,.16));',
-    '  --dwl-skel:var(--dsw-alias-bg-skeleton,rgba(255,255,255,.09));',
-    '  --dwl-err:var(--dsw-static-red-100,#f87171);',
-    '  --dwl-ok:var(--dsw-alias-state-success-primary,#4ade80);',
-    '  --dwl-warn:var(--dsw-alias-state-warn-primary,#fbbf24);',
-    '  --dwl-shadow:var(--dsw-shadow-lv3,0 16px 40px -12px rgba(0,0,0,.62),0 2px 10px -2px rgba(0,0,0,.42));',
-    '}',
-    '@keyframes dwlIn{from{opacity:0;transform:translateY(-5px) scale(.985)}to{opacity:1;transform:none}}',
-    '@keyframes dwlShimmer{0%{background-position:100% 0}100%{background-position:0 0}}',
-    '@keyframes dwlPop{0%{transform:scale(.6);opacity:0}60%{transform:scale(1.15)}100%{transform:scale(1);opacity:1}}',
-    '@media (prefers-reduced-motion:reduce){.dwl-card{animation:none}.dwlk-skel i{animation:none}}',
-
-    // 头部
-    '.dwl-head{display:flex;align-items:flex-start;gap:8px;padding:10px 8px 8px 13px;border-bottom:1px solid var(--dwl-border)}',
-    '.dwl-headmain{flex:1 1 auto;min-width:0}',
-    '.dwlk-word{display:flex;align-items:baseline;gap:7px;flex-wrap:wrap}',
-    '.dwlk-word b{font-size:16px;font-weight:650;letter-spacing:.01em}',
-    '.dwlk-phon{font-size:12.5px;color:var(--dwl-muted);font-family:ui-monospace,SFMono-Regular,Menlo,monospace}',
-    '.dwl-from{font-size:11px;color:var(--dwl-muted)}',
-    '.dwlk-btn{',
-    '  flex:0 0 auto;display:inline-flex;align-items:center;justify-content:center;gap:4px;',
-    '  height:32px;min-width:32px;padding:0 7px;border:0;border-radius:7px;cursor:pointer;',
-    '  background:transparent;color:var(--dwl-muted);font-size:11.5px;font-family:inherit;',
-    '  transition:background .14s ease,color .14s ease;',
-    '}',
-    '.dwlk-btn:hover{background:var(--dwl-hover);color:var(--dwl-fg)}',
-    '.dwlk-btn:active{transform:translateY(.5px)}',
-    '.dwlk-btn:focus-visible{outline:2px solid var(--dwl-accent);outline-offset:1px;border-radius:7px}',
-    '.dwlk-btn svg{width:14px;height:14px;display:block}',
-    '.dwlk-btn[data-done="1"]{color:var(--dwl-ok)}',
-    '.dwlk-btn[data-on="1"]{color:var(--dwl-accent)}',
-    '.dwlk-btn[data-done="1"] svg{animation:dwlPop .28s ease}',
-    '.dwl-acc{min-width:34px;padding:0 6px;font-size:10.5px;font-weight:650;letter-spacing:.04em}',
-    '.dwl-acc:hover{color:var(--dwl-accent)}',
-    '.dwlk-btn[data-busy="1"]{cursor:progress;opacity:.65}',
-    '@keyframes dwlPulse{0%,100%{opacity:.25}50%{opacity:1}}',
-    '.dwlk-btn[data-busy="1"] svg{animation:dwlPulse .9s ease-in-out infinite}',
-    '@media (prefers-reduced-motion:reduce){.dwlk-btn[data-busy="1"] svg{animation:none}}',
-
-    // 分级条
-    '.dwl-tiers{display:flex;align-items:center;gap:6px;flex-wrap:wrap;padding:7px 13px 0}',
-    '.dwlk-chip{',
-    '  display:inline-flex;align-items:center;gap:3px;height:18px;padding:0 6px;',
-    '  border-radius:5px;font-size:10.5px;line-height:1;white-space:nowrap;',
-    '  background:var(--dwl-hover);color:var(--dwl-muted);',
-    '}',
-    '.dwlk-chip[data-tone="known"]{background:var(--dwl-accent-soft);color:var(--dwl-accent)}',
-    '.dwlk-chip[data-tone="exam"]{background:rgba(217,119,6,.12);color:var(--dwl-warn)}',
-    '.dwlk-chip[data-tone="star"]{background:rgba(22,163,74,.12);color:var(--dwl-ok)}',
-    '.dwl-hint{font-size:11px;color:var(--dwl-muted);padding:5px 13px 0}',
-
-    // 正文
-    '.dwlk-body{padding:8px 13px 11px;max-height:min(48vh,400px);overflow:auto}',
-    '.dwlk-body::-webkit-scrollbar{width:8px;height:8px}',
-    '.dwlk-body::-webkit-scrollbar-thumb{background:var(--dwl-hover);border-radius:4px}',
-    '.dwlk-body::-webkit-scrollbar-track{background:transparent}',
-    '.dwlk-sense{display:flex;gap:7px;padding:2.5px 0}',
-    '.dwlk-pos{',
-    '  flex:0 0 auto;min-width:30px;font-size:11px;color:var(--dwl-accent);',
-    '  font-family:ui-monospace,SFMono-Regular,Menlo,monospace;padding-top:1.5px;',
-    '}',
-    '.dwl-text{flex:1 1 auto;word-break:break-word;overflow-wrap:anywhere}',
-    '.dwl-sect{margin-top:9px;padding-top:8px;border-top:1px dashed var(--dwl-border)}',
-    '.dwl-sect h5{margin:0 0 5px;font-size:11px;font-weight:600;color:var(--dwl-muted);letter-spacing:.03em;display:flex;align-items:center;gap:6px}',
-    '.dwl-forms{display:flex;flex-wrap:wrap;gap:5px}',
-    '.dwl-form{font-size:11.5px;padding:1px 6px;border-radius:5px;background:var(--dwl-hover)}',
-    '.dwl-form i{font-style:normal;color:var(--dwl-muted);margin-right:3px}',
-    '.dwl-ex{padding:2.5px 0;font-size:12.5px}',
-    '.dwl-ex em{font-style:normal;color:var(--dwl-muted);font-size:11px;margin-right:5px}',
-    '.dwl-syn{display:flex;flex-wrap:wrap;gap:5px}',
-    '.dwl-syn span{font-size:11.5px;padding:1px 6px;border-radius:5px;background:var(--dwl-hover);cursor:pointer}',
-    '.dwl-syn span:hover{background:var(--dwl-accent-soft);color:var(--dwl-accent)}',
-    '.dwl-syn span:focus-visible{outline:2px solid var(--dwl-accent);outline-offset:1px}',
-    '.dwl-cand:focus-visible{outline:2px solid var(--dwl-accent);outline-offset:1px}',
-    '.dwlk-err{color:var(--dwl-err)}',
-    '.dwl-warnbox{color:var(--dwl-warn);font-size:12px}',
-
-    // 译文（短语/整句场景的主内容）
-    '.dwl-tr{padding:2px 0 8px;border-bottom:1px solid var(--dwl-border);margin-bottom:8px}',
-    '.dwl-tr-label{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--dwl-muted);margin-bottom:4px}',
-    '.dwl-tr-body{font-size:13.5px;line-height:1.62;color:var(--dwl-fg);white-space:pre-wrap;word-break:break-word}',
-    '.dwl-tr-src{padding:0 5px;border-radius:5px;background:var(--dwl-hover);font-size:10.5px}',
-    '.dwl-tr-body[data-pending="1"]{color:var(--dwl-muted)}',
-    '.dwl-tr-fail{font-size:12px;color:var(--dwl-warn);line-height:1.5}',
-    // 整句朗读按钮：就放在"译文"这一行的右侧 —— 划句子的人第一眼就在这儿
-    '.dwl-tr-act{',
-    '  margin-left:auto;flex:0 0 auto;display:inline-flex;align-items:center;gap:4px;',
-    '  height:20px;padding:0 7px;border:0;border-radius:6px;cursor:pointer;font:inherit;',
-    '  font-size:10.5px;background:var(--dwl-hover);color:var(--dwl-muted);',
-    '  transition:background .14s ease,color .14s ease;',
-    '}',
-    '.dwl-tr-act:hover{background:var(--dwl-accent-soft);color:var(--dwl-accent)}',
-    '.dwl-tr-act svg{width:11px;height:11px;display:block}',
-    '.dwl-tr-act[data-busy="1"]{cursor:progress;opacity:.65}',
-    '.dwl-tr-act[data-busy="1"] svg{animation:dwlPulse .9s ease-in-out infinite}',
-    '.dwl-tr-act[data-done="1"]{color:var(--dwl-ok)}',
-
-    // 候选词（短语场景）
-    '.dwl-cands{display:flex;flex-wrap:wrap;gap:5px;padding:2px 0}',
-    '.dwl-cand{',
-    '  display:inline-flex;align-items:baseline;gap:4px;padding:2px 8px;border-radius:7px;',
-    '  background:var(--dwl-hover);cursor:pointer;font-size:12.5px;border:1px solid transparent;',
-    '}',
-    '.dwl-cand:hover{background:var(--dwl-accent-soft);color:var(--dwl-accent)}',
-    '.dwl-cand[data-known="1"]{opacity:.6}',
-    '.dwl-cand s{font-size:10.5px;color:var(--dwl-muted);text-decoration:none}',
-    '.dwl-cand[data-best="1"]{border-color:var(--dwl-accent);background:var(--dwl-accent-soft)}',
-
-    // 骨架屏
-    '.dwlk-skel{display:flex;flex-direction:column;gap:9px;padding:2px 0}',
-    '.dwlk-skel i{',
-    '  display:block;height:9px;border-radius:5px;',
-    '  background:linear-gradient(90deg,var(--dwl-skel) 25%,transparent 37%,var(--dwl-skel) 63%);',
-    '  background-size:400% 100%;animation:dwlShimmer 1.25s ease-in-out infinite;',
-    '}',
-
-    // 底栏
-    '.dwl-foot{display:flex;align-items:center;gap:6px;padding:0 13px 9px;font-size:11px;color:var(--dwl-muted)}',
-    '.dwlk-dot{width:3px;height:3px;border-radius:50%;background:currentColor;opacity:.55;flex:0 0 auto}',
-  ].join('\n')
-
-  const SVG = {
-    sound:
-      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5 6 9H2v6h4l5 4V5z"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/><path d="M18.5 5.5a9 9 0 0 1 0 13"/></svg>',
-    star: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 2 3.1 6.3 6.9 1-5 4.9 1.2 6.8L12 17.8 5.8 21l1.2-6.8-5-4.9 6.9-1z"/></svg>',
-    starFill:
-      '<svg viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 2 3.1 6.3 6.9 1-5 4.9 1.2 6.8L12 17.8 5.8 21l1.2-6.8-5-4.9 6.9-1z"/></svg>',
-    close:
-      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>',
-    back: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>',
-  }
-
-  function ensureStyle() {
-    if (document.getElementById('dwl-style')) return
-    const style = document.createElement('style')
-    style.id = 'dwl-style'
-    style.textContent = CSS
-    ;(document.head || document.documentElement).appendChild(style)
-  }
-
-  // ------------------------------------------------------------ 工具
-  /**
-   * 当前是不是深色主题。
-   *
-   * **判据来自 DSH 自己的实现**（dsh-client-ui-layout 的 ThemePresenter）：
-   *   - 深色时给 body 加 `data-ds-dark-theme`（空字符串属性）
-   *   - 同时给 html 设 `data-ds-theme-source` = 'light' | 'dark' | 'system'
-   *   - 并把 `color-scheme` 写到 documentElement.style
-   *
-   * 我最初只认 `data-theme="dark"`，DSH 根本不设这个属性，所以深色模式下
-   * 卡片一直是浅色底 —— 在深色界面里白得刺眼。这里按真实属性判断。
-   *
-   * 最后的 `matchMedia` 只是脱离 DSH 时的兜底（例如独立预览页）。
-   */
-  function isDark() {
-    try {
-      const body = document.body
-      // ① DSH 的正式标记
-      if (body && body.hasAttribute('data-ds-dark-theme')) return true
-      // ② DSH 发布的主题来源
-      const source = String(
-        document.documentElement.getAttribute('data-ds-theme-source') || '',
-      ).toLowerCase()
-      if (source === 'dark') return true
-      if (source === 'light') return false
-      // ③ 计算样式里的 color-scheme（DSH 也会设它）
-      try {
-        const scheme = window.getComputedStyle(document.documentElement).colorScheme || ''
-        if (scheme.indexOf('dark') >= 0 && scheme.indexOf('light') < 0) return true
-      } catch (err) {}
-      // ④ 兼容其它可能写法 + 脱离 DSH 的兜底
-      const attr = String(document.documentElement.getAttribute('data-theme') || '').toLowerCase()
-      if (attr.indexOf('dark') >= 0) return true
-      if (attr.indexOf('light') >= 0) return false
-      if (
-        body &&
-        typeof body.className === 'string' &&
-        /(^|\s)(dark|theme-dark)(\s|$)/.test(body.className)
-      )
-        return true
-      return !!(window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches)
-    } catch (err) {
-      return false
-    }
-  }
-
-  function escapeHtml(value) {
-    return String(value == null ? '' : value)
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;')
-  }
+  // 卡片的全部 CSS 在更早注入的 wordcard-style.js（window.__dwlWordcardStyle），
+  // 由 wordcard-card.js 的 mount() 负责挂到 <style>；本文件不再持有样式常量。
 
   const cache = new Map()
   function cacheGet(key) {
@@ -313,50 +71,14 @@
     accent: loadAccent(), // 'us' | 'uk'，发音口音
   }
   let inflight = null
-  let hideTimer = null
 
+  // 卡片只画不绑：DOM/markup/定位/渲染在 wordcard-card.js（window.__dwlWordcardCard），
+  // 这里只负责装配 —— mount 建卡、绑事件、syncAccent 补口音文案。
   function buildCard() {
-    ensureStyle()
-    card = document.createElement('div')
-    card.className = 'dwl-card'
-    card.setAttribute('role', 'dialog')
-    card.setAttribute('aria-label', '单词学习卡')
-    card.innerHTML =
-      '<div class="dwl-head">' +
-      '  <div class="dwl-headmain"><div class="dwlk-word"></div></div>' +
-      '  <button class="dwlk-btn" data-act="sound"' +
-      voiceButtonAttrs('朗读（浏览器语音）') +
-      '>' +
-      SVG.sound +
-      '</button>' +
-      '  <button class="dwlk-btn dwl-acc" data-act="accent" title="切换英音/美音"></button>' +
-      '  <button class="dwlk-btn" data-act="star" title="收藏">' +
-      SVG.star +
-      '</button>' +
-      '  <button class="dwlk-btn" data-act="close" title="关闭 (Esc)">' +
-      SVG.close +
-      '</button>' +
-      '</div>' +
-      '<div class="dwl-tiers"></div>' +
-      '<div class="dwl-hint"></div>' +
-      '<div class="dwlk-body"></div>' +
-      '<div class="dwl-foot"></div>'
-
-    els = {
-      word: card.querySelector('.dwlk-word'),
-      tiers: card.querySelector('.dwl-tiers'),
-      hint: card.querySelector('.dwl-hint'),
-      body: card.querySelector('.dwlk-body'),
-      foot: card.querySelector('.dwl-foot'),
-      sound: card.querySelector('[data-act="sound"]'),
-      accent: card.querySelector('[data-act="accent"]'),
-      star: card.querySelector('[data-act="star"]'),
-    }
-
-    if (els.accent) {
-      els.accent.textContent = state.accent.toUpperCase()
-      els.accent.title = state.accent === 'uk' ? '当前英音，点击切美音' : '当前美音，点击切英音'
-    }
+    const mounted = CARD.mount()
+    card = mounted.card
+    els = mounted.els
+    syncAccentButton()
 
     card.addEventListener('click', function (event) {
       const target = event.target
@@ -399,8 +121,6 @@
       }
     })
 
-    card.style.display = 'none'
-    document.body.appendChild(card)
     return card
   }
 
@@ -411,339 +131,20 @@
     return buildCard()
   }
 
-  /**
-   * 短语/整句场景的译文块。
-   *
-   * 这是"划句子"的主内容 —— 用户划一句是因为没读懂，译文必须排在最上面，
-   * 拆词只是它下面的一行附加。
-   */
-  function renderTranslation() {
-    const tr = state.translation
-    if (!tr) return ''
-    let label = '<div class="dwl-tr-label"><b>译文</b>'
-    if (tr.ok && tr.source) {
-      const srcName = tr.source === 'llm' ? 'DSH 模型' : 'MyMemory'
-      label += '<span class="dwl-tr-src">' + srcName + '</span>'
-      if (tr.cached) label += '<span class="dwl-tr-src">缓存</span>'
-    }
-    // 整句朗读：整句场景的发音入口就在译文这一行。
-    //
-    // 为什么不复用头部的喇叭按钮：那个按钮读的是 state.data.dict.word，
-    // 整句场景根本没有 data（只有 candidates），按钮被显式隐藏了 ——
-    // 划一整句时用户压根没有能读整句的地方。
-    label +=
-      '<button class="dwl-tr-act" data-act="speak-sentence"' +
-      voiceButtonAttrs('朗读整句（浏览器语音）') +
-      '>' +
-      SVG.sound +
-      '<span>读整句</span></button>'
-    label += '</div>'
-
-    if (tr.pending) {
-      return (
-        '<div class="dwl-tr">' +
-        label +
-        '<div class="dwl-tr-body" data-pending="1">翻译中…</div>' +
-        '</div>'
-      )
-    }
-    if (!tr.ok) {
-      return (
-        '<div class="dwl-tr">' +
-        label +
-        '<div class="dwl-tr-fail">' +
-        escapeHtml(tr.error || '翻译失败') +
-        '</div></div>'
-      )
-    }
-    return (
-      '<div class="dwl-tr">' +
-      label +
-      '<div class="dwl-tr-body">' +
-      escapeHtml(tr.text) +
-      '</div></div>'
-    )
-  }
-
-  function renderSkeleton() {
-    const widths = ['58%', '92%', '80%', '42%']
-    let html = '<div class="dwlk-skel">'
-    for (let i = 0; i < widths.length; i++) html += '<i style="width:' + widths[i] + '"></i>'
-    return html + '</div>'
-  }
-
-  function toneOf(tier) {
-    if (tier === 'top1k') return 'known'
-    if (tier === 'top3k') return 'known'
-    return ''
-  }
-
+  // 渲染/定位是纯视图操作，实现在 wordcard-card.js。契约：render 只读 state，
+  // 写状态只发生在本文件（state 传引用，不拷贝）。
   function render() {
-    if (!card) return
-    card.setAttribute('data-theme', isDark() ? 'dark' : 'light')
-
-    // ---- 错误
-    if (state.error) {
-      els.word.innerHTML = '<b>' + escapeHtml(state.text.slice(0, 32)) + '</b>'
-      els.tiers.innerHTML = ''
-      els.hint.textContent = ''
-      els.body.innerHTML = '<div class="dwlk-err">' + escapeHtml(state.error) + '</div>'
-      els.foot.textContent = ''
-      els.sound.style.display = 'none'
-      els.star.style.display = 'none'
-      return
-    }
-
-    // ---- 译文 / 候选词列表（短语场景）
-    //
-    // 条件带上 `state.translation`：译文可能比拆词先回来。
-    // 若只等 candidates，用户在拆词期间看到的还是一张空骨架，
-    // 而他要的译文其实已经到了。
-    if (state.candidates || state.translation) {
-      const cands = state.candidates
-      if (cands) {
-        els.word.innerHTML =
-          '<b>选一个词</b><span class="dwl-from">共 ' + cands.length + ' 个候选</span>'
-        els.tiers.innerHTML = ''
-        els.hint.textContent = '点任意一个词查看释义；灰掉的是高频词，多半你已经认识'
-      } else {
-        els.word.innerHTML = '<b>' + escapeHtml(state.text.slice(0, 40)) + '</b>'
-        els.tiers.innerHTML = ''
-        els.hint.textContent = '正在挑出值得学的词…'
-      }
-      els.body.innerHTML =
-        renderTranslation() +
-        (cands
-          ? '<div class="dwl-cands">' +
-            cands
-              .map(function (item) {
-                if (!item.found) {
-                  return (
-                    '<span class="dwl-cand" data-known="1" aria-disabled="true"><s>' +
-                    escapeHtml(item.word) +
-                    '</s></span>'
-                  )
-                }
-                const cls = item.likelyKnown ? '1' : '0'
-                const best = item.word === cands.best ? '1' : '0'
-                return (
-                  '<span class="dwl-cand" role="button" tabindex="0" data-word="' +
-                  escapeHtml(item.word) +
-                  '" data-known="' +
-                  cls +
-                  '" data-best="' +
-                  best +
-                  '">' +
-                  escapeHtml(item.word) +
-                  (item.brief ? '<s>' + escapeHtml(item.brief.slice(0, 14)) + '</s>' : '') +
-                  '</span>'
-                )
-              })
-              .join('') +
-            '</div>'
-          : '')
-      els.foot.textContent = ''
-      els.sound.style.display = 'none'
-      els.star.style.display = 'none'
-      return
-    }
-
-    // ---- 加载中
-    if (!state.data) {
-      els.word.innerHTML = '<b>' + escapeHtml(state.text) + '</b>'
-      els.tiers.innerHTML = ''
-      els.hint.textContent = ''
-      els.body.innerHTML = renderSkeleton()
-      els.foot.textContent = ''
-      els.sound.style.display = 'none'
-      els.star.style.display = 'none'
-      return
-    }
-
-    // ---- 正常结果
-    const d = state.data.dict
-    const ex = state.data.enrich || {}
-    const saved = state.data.saved || {}
-
-    let head = '<b>' + escapeHtml(d.word) + '</b>'
-    if (d.phonetic)
-      head +=
-        '<span class="dwlk-phon">/' + escapeHtml(d.phonetic.replace(/^\/|\/$/g, '')) + '</span>'
-    if (d.matchedBy === 'lemma' && d.asForm) {
-      head += '<span class="dwl-from">← ' + escapeHtml(d.asForm.word) + '</span>'
-    } else if (d.matchedBy === 'form') {
-      head += '<span class="dwl-from">← ' + escapeHtml(d.query) + ' 的原形</span>'
-    }
-    els.word.innerHTML = head
-
-    // 分级 chips
-    const chips = []
-    if (d.frequency && d.frequency.label) {
-      chips.push(
-        '<span class="dwlk-chip" data-tone="' +
-          toneOf(d.frequency.tier) +
-          '">' +
-          escapeHtml(d.frequency.label) +
-          '</span>',
-      )
-    }
-    if (d.collins > 0) chips.push('<span class="dwlk-chip">柯林斯 ' + d.collins + ' 星</span>')
-    if (d.oxford) chips.push('<span class="dwlk-chip">牛津核心</span>')
-    ;(d.tags || []).forEach(function (tag) {
-      chips.push('<span class="dwlk-chip" data-tone="exam">' + escapeHtml(tag.label) + '</span>')
-    })
-    if (saved.starred) chips.push('<span class="dwlk-chip" data-tone="star">已收藏</span>')
-    els.tiers.innerHTML = chips.join('')
-
-    // 提示：分级结论
-    if (d.likelyKnown) {
-      els.hint.innerHTML =
-        '<span style="color:var(--dwl-muted)">这词很常见，你多半已经认识 —— 已记入生词本，可在复习页删掉</span>'
-    } else {
-      els.hint.innerHTML =
-        '<span style="color:var(--dwl-muted)">已记入生词本' +
-        (saved.seenCount > 1 ? '（第 ' + saved.seenCount + ' 次遇见）' : '') +
-        '</span>'
-    }
-
-    // 正文
-    let html = ''
-    ;(d.senses || []).slice(0, 6).forEach(function (sense) {
-      const pos = sense.pos || (sense.domain ? '[' + sense.domain + ']' : '')
-      html +=
-        '<div class="dwlk-sense"><span class="dwlk-pos">' +
-        escapeHtml(pos) +
-        '</span><span class="dwl-text">' +
-        escapeHtml(sense.text) +
-        '</span></div>'
-    })
-    if (!d.senses || !d.senses.length) html += '<div class="dwlk-sense">（无中文释义）</div>'
-
-    // 变形
-    if (d.forms && d.forms.length) {
-      html +=
-        '<div class="dwl-sect"><h5>词形变化</h5><div class="dwl-forms">' +
-        d.forms
-          .slice(0, 10)
-          .map(function (f) {
-            return (
-              '<span class="dwl-form"><i>' +
-              escapeHtml(f.label) +
-              '</i>' +
-              escapeHtml(f.value) +
-              '</span>'
-            )
-          })
-          .join('') +
-        '</div></div>'
-    }
-
-    // 例句
-    if (ex.examples && ex.examples.length) {
-      html +=
-        '<div class="dwl-sect"><h5>例句</h5>' +
-        ex.examples
-          .slice(0, 3)
-          .map(function (e) {
-            return (
-              '<div class="dwl-ex">' +
-              (e.pos ? '<em>' + escapeHtml(e.pos) + '</em>' : '') +
-              escapeHtml(e.text) +
-              '</div>'
-            )
-          })
-          .join('') +
-        '</div>'
-    }
-
-    // 同义词
-    if (ex.synonyms && ex.synonyms.length) {
-      html +=
-        '<div class="dwl-sect"><h5>近义词（点击可查）</h5><div class="dwl-syn">' +
-        ex.synonyms
-          .slice(0, 8)
-          .map(function (s) {
-            return '<span role="button" tabindex="0">' + escapeHtml(s) + '</span>'
-          })
-          .join('') +
-        '</div></div>'
-    }
-
-    // 原句回放（带整句朗读 —— 查完单词往往想再听一遍原句）
-    if (state.sentence && state.sentence !== d.word) {
-      html +=
-        '<div class="dwl-sect"><h5>你在这里遇到它' +
-        '<button class="dwl-tr-act" data-act="speak-sentence"' +
-        voiceButtonAttrs('朗读原句（浏览器语音）') +
-        '>' +
-        SVG.sound +
-        '<span>读整句</span></button>' +
-        '</h5><div class="dwl-ex">' +
-        escapeHtml(state.sentence.slice(0, 220)) +
-        '</div></div>'
-    }
-
-    els.body.innerHTML = html
-
-    // 底栏
-    const parts = []
-    if (d.frequency && d.frequency.rank) parts.push('词频 #' + d.frequency.rank)
-    if (state.warnings && state.warnings.length) parts.push('⚠ ' + state.warnings.join('；'))
-    if (!voiceModule()) parts.unshift(VOICE_MISSING)
-    parts.push('Esc 关闭')
-    els.foot.innerHTML = parts
-      .map(function (p) {
-        return escapeHtml(p)
-      })
-      .join('<span class="dwlk-dot"></span>')
-
-    // 按钮状态：语音由 voice.js（浏览器自带音色）提供，不依赖外部 mp3。
-    // 模块可能晚一步注入，所以每次渲染都按当前可用性刷新一次，避免按钮一直灰着。
-    els.sound.style.display = ''
-    const voiceReady = !!voiceModule()
-    els.sound.disabled = !voiceReady
-    if (voiceReady) els.sound.removeAttribute('aria-disabled')
-    else els.sound.setAttribute('aria-disabled', 'true')
-    els.star.style.display = ''
-    if (saved.starred) {
-      els.star.setAttribute('data-on', '1')
-      els.star.innerHTML = SVG.starFill
-    } else {
-      els.star.removeAttribute('data-on')
-      els.star.innerHTML = SVG.star
-    }
+    if (!card || !els) return
+    CARD.render(card, els, state)
   }
 
   function place(rect) {
     if (!card) return
-    const vw = window.innerWidth
-    const vh = window.innerHeight
-    const gap = 8
-
-    card.style.visibility = 'hidden'
-    card.style.display = 'block'
-    const w = card.offsetWidth || 0
-    const h = card.offsetHeight || 0
-
-    let top = rect.bottom + gap
-    if (top + h > vh - 8) {
-      const above = rect.top - h - gap
-      top = above >= 8 ? above : Math.max(8, vh - h - 8)
-    }
-    let left = rect.left
-    left = Math.min(Math.max(8, left), Math.max(8, vw - w - 8))
-
-    card.style.top = Math.round(top) + 'px'
-    card.style.left = Math.round(left) + 'px'
-    card.style.visibility = ''
+    CARD.place(card, rect)
   }
 
   function show(text, rect, sentence) {
     ensureCard()
-    if (hideTimer) {
-      clearTimeout(hideTimer)
-      hideTimer = null
-    }
     if (text !== state.text) {
       state.data = null
       state.error = ''
@@ -1055,7 +456,8 @@
   }
 
   // 排除范围（代码块 / 链接 / 表格 / 按钮…）与生效范围（只认 data-chat-flow）
-  // 的判定都在 core.js：wordcard 与测试共用同一份口径，这里不再重复实现。
+  // 的判定都在 core.js；共同排除项（BLOCKED_ELEMENTS）与 annotate.js 共用一份，
+  // 这里不再重复实现。
 
   /** 选区是否"像英文内容"：至少有一个拉丁字母，且不是纯中文。 */
   function looksEnglish(text) {

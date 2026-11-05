@@ -38,14 +38,46 @@
     return !!el.closest(SCOPE_SELECTOR)
   }
 
-  // ------------------------------------------------------------ 排除范围
+  // ------------------------------------------------------------ 排除范围（单一来源）
+  //
+  // 划词卡片与标注层共用这份"容器级排除"名单：这里只放两边共同排除的项，
+  // 各自场景特有的项由各自文件追加。改这里两边同时生效，不会再出现
+  // "改了一边、忘了另一边"的双口径。最终选择器由 blockedSelector() 拼出，
+  // test-scope 有一致性断言，只改一边会红。
   //
   // 划词卡只服务自然语言。代码块、行内 code、链接文字、文件名芯片、表格、
-  // 按钮、其它插件的弹窗里选中的"词"多半是标识符或 UI 文案，收进生词本只会污染。
-  // 与 annotate.js 的容器黑名单保持一致（两边同一个判断口径）。
-  const EXCLUDED_SELECTOR =
-    'input,textarea,select,[contenteditable=""],[contenteditable="true"],.dwl-card,' +
-    'pre,code,.md-code-block,a,button,table,[data-ref-chip],[role="dialog"],[role="menu"],[role="tooltip"]'
+  // 按钮里选中的"词"多半是标识符或 UI 文案，收进生词本只会污染。
+  const BLOCKED_ELEMENTS = [
+    'pre',
+    'code',
+    '.md-code-block',
+    'a',
+    'button',
+    'table',
+    '[data-ref-chip]',
+  ]
+
+  /** 拼最终排除选择器：共同项在前，场景特有项（extra）在后。 */
+  function blockedSelector(extra) {
+    const parts = BLOCKED_ELEMENTS.slice()
+    if (Array.isArray(extra)) {
+      for (let i = 0; i < extra.length; i += 1) parts.push(extra[i])
+    }
+    return parts.join(',')
+  }
+
+  // wordcard 场景特有项：输入区 / 我们自己的卡片 / 其它插件的弹窗。
+  // 分前后两段拼是为了让最终字符串与拆分前逐字节一致（选择器顺序无行为差异）。
+  const WORDCARD_PREFIX = [
+    'input',
+    'textarea',
+    'select',
+    '[contenteditable=""]',
+    '[contenteditable="true"]',
+    '.dwl-card',
+  ]
+  const WORDCARD_SUFFIX = ['[role="dialog"]', '[role="menu"]', '[role="tooltip"]']
+  const EXCLUDED_SELECTOR = WORDCARD_PREFIX.concat(BLOCKED_ELEMENTS, WORDCARD_SUFFIX).join(',')
 
   function inEditable(el) {
     if (!el || !el.closest) return false
@@ -131,6 +163,8 @@
 
   window.__dwlCore = {
     SCOPE_SELECTOR: SCOPE_SELECTOR,
+    BLOCKED_ELEMENTS: BLOCKED_ELEMENTS,
+    blockedSelector: blockedSelector,
     EXCLUDED_SELECTOR: EXCLUDED_SELECTOR,
     inConversation: inConversation,
     inEditable: inEditable,

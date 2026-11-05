@@ -13,6 +13,10 @@ import path from 'node:path'
 import vm from 'node:vm'
 
 const DASHBOARD = path.join(import.meta.dirname, '..', '..', 'assets', 'dashboard.js')
+// dashboard.js 消费的两个注入脚本（生产环境由 lib/index.js 按同样顺序注入）：
+// 纯逻辑与 CSS 先加载，dashboard.js 的 factory 再从这里取 window.__dwlDashboard*。
+const LOGIC = path.join(import.meta.dirname, '..', '..', 'assets', 'dashboard-logic.js')
+const STYLE = path.join(import.meta.dirname, '..', '..', 'assets', 'dashboard-style.js')
 
 /** 极简 React：createElement + 5 个 hooks，足够渲染这些无副作用组件。 */
 export function createReactRuntime() {
@@ -44,12 +48,35 @@ export function createReactRuntime() {
     return box.refs[i]
   }
 
-  function useEffect(fn) {
-    current.effects.push(fn)
+  function useEffect(fn, deps) {
+    const box = current
+    const i = box.i++
+    const prev = box.effectDeps[i]
+    // 与 React 一致：只有 deps 变化才重新执行。忽略 deps 会让
+    // useEffect([load]) 每轮重渲都发一次请求（VocabView 会无限刷新）。
+    if (prev && sameDeps(prev, deps)) return
+    box.effectDeps[i] = deps
+    box.effects.push(fn)
   }
 
-  function useCallback(fn) {
+  /**
+   * useCallback 必须真的按 deps 记忆：VocabView 的 load/more 依赖它稳定，
+   * 否则每次渲染都得到新函数 → useEffect([load]) 每轮重跑 → 无限重新请求。
+   * 这里按 React 语义做浅比较（长度 + 逐项 ===）。
+   */
+  function useCallback(fn, deps) {
+    const box = current
+    const i = box.i++
+    const prev = box.callbacks[i]
+    if (prev && sameDeps(prev.deps, deps)) return prev.fn
+    box.callbacks[i] = { fn, deps }
     return fn
+  }
+
+  function sameDeps(a, b) {
+    if (!a || !b) return a === b
+    if (a.length !== b.length) return false
+    return a.every((v, i) => v === b[i])
   }
 
   function useMemo(fn) {
@@ -73,7 +100,15 @@ export function createReactRuntime() {
    * 返回渲染句柄：`render()` 重渲染，`flush()` 等异步 effect 落地。
    */
   function mount(Component, props) {
-    const box = { i: 0, states: [], refs: {}, effects: [], dirty: false }
+    const box = {
+      i: 0,
+      states: [],
+      refs: {},
+      effects: [],
+      callbacks: [],
+      effectDeps: [],
+      dirty: false,
+    }
     const handle = {
       tree: null,
       render() {
@@ -160,7 +195,12 @@ export function textOf(node) {
  */
 export function loadDashboard(options = {}) {
   const code = fs.readFileSync(DASHBOARD, 'utf8')
+  const logicCode = fs.readFileSync(LOGIC, 'utf8')
+  const styleCode = fs.readFileSync(STYLE, 'utf8')
   const { React, mount } = createReactRuntime()
+  // 最小事件总线：注入脚本（logic/style）就绪后 dispatch dwl:assets-ready，
+  // dashboard.js 侧要能收到并补渲染 —— 普通刷新竞态就靠它恢复。
+  const listeners = new Map()
   const win = {
     innerWidth: 1200,
     innerHeight: 800,
@@ -170,27 +210,72 @@ export function loadDashboard(options = {}) {
       removeItem: () => {},
     },
     matchMedia: () => ({ matches: false, addEventListener() {}, addListener() {} }),
+    addEventListener(type, fn) {
+      if (!listeners.has(type)) listeners.set(type, new Set())
+      listeners.get(type).add(fn)
+    },
+    removeEventListener(type, fn) {
+      const set = listeners.get(type)
+      if (set) set.delete(fn)
+    },
+    dispatchEvent(evt) {
+      for (const fn of [...(listeners.get(evt.type) || [])]) fn(evt)
+      return true
+    },
+    ...(options.window || {}),
+  }
+  // 极简 <head>：dashboard.js 的样式 effect 会 createElement('style') 再 appendChild，
+  // 测试要能断言「样式元素真的出现了、内容非空、卸载时被移除」。
+  const headChildren = []
+  const fakeDocument = {
+    createElement() {
+      const el = {
+        style: {},
+        dataset: {},
+        textContent: '',
+        appendChild() {},
+        remove() {
+          const i = headChildren.indexOf(el)
+          if (i !== -1) headChildren.splice(i, 1)
+        },
+      }
+      return el
+    },
+    head: {
+      appendChild(el) {
+        headChildren.push(el)
+      },
+    },
+    body: {},
     addEventListener() {},
     removeEventListener() {},
-    ...(options.window || {}),
+    querySelector: () => null,
+    querySelectorAll: () => [],
+    get _styles() {
+      return headChildren.map((el) => (el.textContent || '').length)
+    },
   }
   const sandbox = {
     window: win,
-    document: options.document || {
-      createElement: () => ({ style: {}, dataset: {}, appendChild() {}, remove() {} }),
-      head: { appendChild() {} },
-      body: {},
-      addEventListener() {},
-      removeEventListener() {},
-      querySelector: () => null,
-      querySelectorAll: () => [],
-    },
+    document: options.document || fakeDocument,
     localStorage: win.localStorage,
     fetch: options.fetch || (async () => ({ status: 200, json: async () => ({ ok: true }) })),
     setTimeout,
     clearTimeout,
     console,
     URL,
+    // VocabView 用 new URLSearchParams 拼 /list 查询串；浏览器一定有，替身要补上，
+    // 否则组件在测试里跟真实环境不是同一份能力（会直接 ReferenceError）。
+    URLSearchParams,
+    // 就绪信号与兜底轮询用到的浏览器能力（logic/style 的 dispatch + apply 的监听）。
+    CustomEvent: class CustomEvent {
+      constructor(type, init) {
+        this.type = type
+        this.detail = (init || {}).detail
+      }
+    },
+    setInterval,
+    clearInterval,
   }
   win.__ModuleLoader__ = {
     load(def) {
@@ -198,6 +283,13 @@ export function loadDashboard(options = {}) {
     },
   }
   vm.createContext(sandbox)
+  // 先注入纯逻辑/样式（与生产的注入顺序一致），再加载 dashboard.js 本体。
+  // deferAssets: 模拟「DSH 自己的 client 入口先 apply、我们的注入脚本后到」的
+  // 普通刷新竞态 —— 由测试稍后手动 injectAssets() 补上。
+  if (!options.deferAssets) {
+    vm.runInContext(logicCode, sandbox, { filename: 'assets/dashboard-logic.js' })
+    vm.runInContext(styleCode, sandbox, { filename: 'assets/dashboard-style.js' })
+  }
   vm.runInContext(code, sandbox, { filename: 'assets/dashboard.js' })
   const def = sandbox.__module
   if (!def || typeof def.factory !== 'function') {
@@ -211,7 +303,18 @@ export function loadDashboard(options = {}) {
     throw new Error('dashboard.js 缺少 __test__ 导出（单测入口）')
   }
   // 挂上运行时与源码：组件测试要 mount，源码级断言（不许 new Audio 等）要原文。
+  // __source__ 拼上逻辑/样式两段注入脚本：它们与 dashboard.js 一起构成页面侧客户端，
+  // 源码级约束（发音走 __dwlVoice 等）应按整个客户端算，不是只看 dashboard.js。
   mod.__helpers__ = { mount, React }
-  mod.__source__ = code
+  if (options.deferAssets) {
+    // 竞态测试入口：先让 dashboard.js 的工厂/apply 跑起来，再注入全局并靠事件恢复。
+    mod.__helpers__.injectAssets = () => {
+      vm.runInContext(logicCode, sandbox, { filename: 'assets/dashboard-logic.js' })
+      vm.runInContext(styleCode, sandbox, { filename: 'assets/dashboard-style.js' })
+    }
+    mod.__helpers__.window = win
+    mod.__helpers__.document = sandbox.document
+  }
+  mod.__source__ = code + '\n' + logicCode + '\n' + styleCode
   return mod
 }

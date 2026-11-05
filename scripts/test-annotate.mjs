@@ -28,6 +28,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const ROOT = path.dirname(HERE)
 const ANNOTATE_JS = path.join(ROOT, 'assets', 'annotate.js')
+const CORE_JS = path.join(ROOT, 'assets', 'core.js')
 const FIXTURE_DIR = path.join(HERE, 'test-annotate-fixture')
 
 const results = []
@@ -65,6 +66,8 @@ function loadPure() {
     console,
   }
   vm.createContext(sandbox)
+  // annotate.js 的排除范围共同项来自 core.js（宿主注入顺序已保证）；单测同理先加载 core。
+  vm.runInContext(fs.readFileSync(CORE_JS, 'utf8'), sandbox, { filename: 'assets/core.js' })
   vm.runInContext(code, sandbox, { filename: 'assets/annotate.js' })
   return sandbox.window.__dwlAnnotate
 }
@@ -307,6 +310,10 @@ function startServer() {
             'text/html; charset=utf-8',
             fs.readFileSync(path.join(FIXTURE_DIR, 'index.html')),
           )
+          return
+        }
+        if (urlPath === '/assets/core.js') {
+          send(200, 'text/javascript; charset=utf-8', fs.readFileSync(CORE_JS))
           return
         }
         if (urlPath === '/assets/annotate.js') {

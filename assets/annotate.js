@@ -1,7 +1,8 @@
 // annotate.js —— P3：DSH 对话正文内的生词标注层。
 //
-// 形态：独立 IIFE，不依赖 React，由宿主 index.js 以普通 <script> 注入
-// （window.__dshWordLearnAnnotate 防重）。坏了只影响标注，不拖垮划词卡片和学习页。
+// 形态：独立 IIFE（排除范围的共同项从更早注入的 core.js 取），不依赖 React，
+// 由宿主 index.js 以普通 <script> 注入（window.__dwlAnnotate 防重）。
+// 坏了只影响标注，不拖垮划词卡片和学习页。
 //
 // 为什么是 DOM 标注而不是 React slot（v1 的技术选择，见 design/p3-inline-annotation.md）：
 //   - 宿主已经注入普通 script，改这个文件不需要重启宿主；
@@ -20,6 +21,11 @@
 
   // 防重复注入：宿主两个 script 标签、或 HMR 重放都可能再来一次。
   if (window.__dwlAnnotate && window.__dwlAnnotate.version) return
+
+  // 排除范围的共同项只有一份：core.js 的 BLOCKED_ELEMENTS（注入行保证 core 在前）。
+  // 拿不到 core 就整体跳过标注 —— 这是最小兜底，绝不在本文件另抄一份名单。
+  const CORE = window.__dwlCore
+  if (!CORE || !Array.isArray(CORE.BLOCKED_ELEMENTS)) return
 
   const CONFIG = {
     VERSION: '1.0.0',
@@ -50,25 +56,19 @@
     ALLOWED_KINDS: ['user', 'assistant-step'],
 
     // ---- 黑名单（容器级）----
-    // 命中即整棵子树跳过。顺序无所谓，合成一个选择器后交给 closest()。
-    BLACKLIST: [
-      // 代码：DSH 的围栏代码块是 div.md-code-block > pre > code；
-      // 行内代码是 <code>；工具/文件预览里还有 [data-code-wrap]。
-      'pre',
-      'code',
-      '.md-code-block',
+    // 命中即整棵子树跳过。顺序无所谓，合成一个选择器后交给 closest()/matches()。
+    // 共同项（pre / code / .md-code-block / a / [data-ref-chip] / button / table）
+    // 只在 core.js 的 BLOCKED_ELEMENTS 里维护；这里只列标注层特有项，避免双口径。
+    BLACKLIST: CORE.BLOCKED_ELEMENTS.concat([
+      // 工具/文件预览里的代码容器（pre / code 在共同项里，不重复列）。
       '[data-code-wrap]',
       '[data-code-block-banner]',
-      // 链接与文件引用芯片：URL/文件名不该被拆成单词标注。
-      'a',
-      '[data-ref-chip]',
-      // 交互控件：原生 button 里的文字是 UI 文案，不是阅读材料。
+      // 交互控件：原生 button 在共同项里。
       // 注意**不能**黑名单 [role="button"]：DSH 的思考/过程折叠行是
       // div[role="button"][data-disclosure-row]，它的文本正是"折叠框标题"
       // （要求：未展开的折叠框只处理标题），黑掉它等于真实页面上一律 0 标注。
-      'button',
-      // 表格：v1 保守排除（悬停卡在密集表格里容易挡视线），后续可配置放开。
-      'table',
+      // 表格：table 在共同项里；.md-table-wide 是标注层额外的保守排除
+      // （v1 悬停卡在密集表格里容易挡视线，后续可配置放开）。
       '.md-table-wide',
       // 流式与折叠：DSH 用 hidden="until-found" 藏起未展开的 process 组；
       // [data-streaming] 是 AssistantMarkdown / 思考摘要的流式标记。
@@ -97,7 +97,7 @@
       // 我们自己的产物（重扫时不要钻进自己的 span/卡片）。
       '.dwl-anno',
       '.dwlac',
-    ],
+    ]),
 
     // ---- 流式/稳定性 ----
     // 三重判定（保守优先）：

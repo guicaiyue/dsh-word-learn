@@ -80,809 +80,53 @@ window.__ModuleLoader__.load({
     /** 侧栏入口与主面板共用的 id。两者必须一致，否则点了没反应。 */
     const PANEL_ID = 'word-learn'
 
-    /** 宿主侧路由前缀。 */
-    const API = '/dsh-word-learn'
-
-    /** 记住上次停在哪个视图（只影响体验，读不到就退回默认值）。 */
-    const VIEW_KEY = 'dsh-word-learn:view'
-
-    /** localStorage key：美音 / 英音偏好。与 wordcard.js 共享。 */
-    const ACCENT_KEY = 'dwl-voice-accent'
-
-    /**
-     * localStorage key：R5「昨日回访」今天已经跳过了。
-     *
-     * 为什么放在前端：跳过不该有任何副作用（不清债、不写库），但同一个页面
-     * 刷新后不能又把同一批题怼回来 —— 那是骚扰，不是复习。按**本地日期**存，
-     * 换一天自动失效，不用清理。
-     */
-    const RECAP_SKIP_KEY = 'dsh-word-learn:recap-skip'
-
-    /**
-     * 义项地图的状态文案。
-     * 状态码来自 lib/r5.mjs 的 senseMap()：seen / right / wrong。
-     */
-    const SENSE_STATUS_LABEL = { seen: '见过', right: '答对过', wrong: '答错过' }
-
-    /** 三个视图。顺序即标签顺序。 */
-    const TABS = [
-      { key: 'study', label: '学习' },
-      { key: 'vocab', label: '词汇' },
-      { key: 'stats', label: '数据' },
-      { key: 'settings', label: '设置' },
-    ]
-
-    /** 词频档位的中文名与颜色。颜色只用于堆叠条与图例。 */
-    const TIERS = [
-      { key: 'top1k', label: '最高频 1000', color: 'var(--dsw-alias-state-success-primary)' },
-      { key: 'top3k', label: '高频 3000', color: 'var(--dsw-alias-state-business-primary)' },
-      { key: 'top8k', label: '常用 8000', color: 'var(--dwl-accent)' },
-      { key: 'rare', label: '低频 / 专业', color: 'var(--dsw-alias-state-warn-primary)' },
-      { key: 'unknown', label: '未分级', color: 'var(--dsw-alias-label-tertiary)' },
-    ]
-
-    /** 五维画像的中文名。顺序即展示顺序。 */
-    const ABILITIES = [
-      { key: 'recognize', label: '认得', hint: '看到词形能想起意思' },
-      { key: 'meaning', label: '意思', hint: '知道它在句子里的确切含义' },
-      { key: 'write', label: '能写', hint: '能主动拼写出来' },
-      { key: 'listen', label: '能听', hint: '听到能反应过来' },
-      { key: 'pronounce', label: '读准', hint: '发音能被识别' },
-    ]
-
-    /**
-     * 评分按钮。数字与 ts-fsrs 的 Rating 一致。
-     *
-     * `tone` 只影响 hover 描边色，不写死背景 —— 深色主题下才不会糊成一片。
-     */
-    const RATINGS = [
-      { value: 1, label: '忘了', key: '1', tone: 'again' },
-      { value: 2, label: '勉强', key: '2', tone: 'hard' },
-      { value: 3, label: '记得', key: '3', tone: 'good' },
-      { value: 4, label: '太简单', key: '4', tone: 'easy' },
-    ]
-
-    /**
-     * 三分支自评选项。
-     * FSRS 映射：forgot→1(Again)  fuzzy+fail→2(Hard)  fuzzy+pass→3(Good)  remember+pass→4(Easy)
-     */
-    const BRANCHES = [
-      { key: 'forgot', label: '忘了', desc: '完全想不起来', tone: 'again' },
-      { key: 'fuzzy', label: '模糊', desc: '有点印象', tone: 'hard' },
-      { key: 'remember', label: '记得', desc: '我知道', tone: 'good' },
-    ]
-
-    // ---------------------------------------------------------------- 工具
-
-    /** 取 JSON；非 2xx 也把 body 读出来，因为宿主的错误信息在里面。 */
-    async function api(path, options = {}) {
-      const res = await fetch(API + path, {
-        method: options.method || 'GET',
-        headers: options.body === undefined ? undefined : { 'content-type': 'application/json' },
-        body: options.body === undefined ? undefined : JSON.stringify(options.body),
-        credentials: 'same-origin',
-      })
-      let json
-      try {
-        json = await res.json()
-      } catch (err) {
-        json = { ok: false, error: `HTTP ${res.status}` }
-      }
-      return json
-    }
-
-    /** 相对时间，给"最近加入"和复习时间用。 */
-    function relTime(ts) {
-      if (!ts) return ''
-      const diff = Date.now() - ts
-      const min = Math.floor(diff / 60000)
-      if (min < 1) return '刚刚'
-      if (min < 60) return `${min} 分钟前`
-      const hr = Math.floor(min / 60)
-      if (hr < 24) return `${hr} 小时前`
-      const day = Math.floor(hr / 24)
-      if (day < 30) return `${day} 天前`
-      return new Date(ts).toLocaleDateString('zh-CN')
-    }
-
-    /** 月/日，图表横轴用。 */
-    function fmtMD(ts) {
-      const d = new Date(ts)
-      return `${d.getMonth() + 1}/${d.getDate()}`
-    }
-
-    /**
-     * 本地日期键（YYYY-MM-DD）。
-     *
-     * 为什么不用 toISOString().slice(0,10)：那是 **UTC** 日期，东八区早上 8 点
-     * 之前会算成昨天，「今天已跳过回访」就会在早上莫名失效。与 dayStart 同口径。
-     */
-    function localDayKey(date) {
-      const d = date || new Date()
-      const m = String(d.getMonth() + 1).padStart(2, '0')
-      const day = String(d.getDate()).padStart(2, '0')
-      return `${d.getFullYear()}-${m}-${day}`
-    }
-
-    /** 今天的「昨日回访」是不是已经跳过了。localStorage 读不到就当没跳过。 */
-    function recapSkippedToday() {
-      try {
-        return window.localStorage.getItem(RECAP_SKIP_KEY) === localDayKey()
-      } catch (err) {
-        return false
-      }
-    }
-
-    /** 记下「今天跳过回访」。写不进去也不影响功能。 */
-    function markRecapSkipped() {
-      try {
-        window.localStorage.setItem(RECAP_SKIP_KEY, localDayKey())
-      } catch (err) {}
-    }
-
-    /**
-     * 释义拆成「主释义 + 其余义项」。
-     *
-     * ECDICT 的 translation 是换行分隔的多条义项，原来整段塞进一行里截断，
-     * 用户只看到第一个分号前面那半句。这里拆开，第一条放大，其余降一级。
-     */
-    function splitSenses(translation) {
-      const lines = String(translation || '')
-        .split('\n')
-        .map((s) => s.trim())
-        .filter(Boolean)
-      if (!lines.length) return { lead: '', rest: [] }
-      return { lead: lines[0], rest: lines.slice(1, 4) }
-    }
-
-    /**
-     * 在句子里定位目标词，只截取词附近一段（原句可能来自很长的思维链）。
-     *
-     * 不用正则转义：队列里的词都是词典词条（纯字母），不会有元字符。
-     * 允许 -s/-ed/-ing 这类变形；找不到返回 null，调用方降级。
-     */
-    function wordSpot(sentence, word) {
-      const s = String(sentence || '')
-      const w = String(word || '').toLowerCase()
-      if (!s || !w) return null
-      const re = new RegExp('(^|[^a-zA-Z])(' + w + '[a-z]{0,4})(?![a-zA-Z])', 'i')
-      const m = re.exec(s)
-      if (!m) return null
-      const token = m[2]
-      const at = m.index + m[1].length
-      const from = Math.max(0, at - 90)
-      const to = Math.min(s.length, at + token.length + 110)
-      return {
-        before: (from > 0 ? '…' : '') + s.slice(from, at),
-        token,
-        after: s.slice(at + token.length, to) + (to < s.length ? '…' : ''),
-      }
-    }
-
-    // ---------------------------------------------------------------- 发音
+    // 无 React 依赖的纯函数/常量来自注入的 dashboard-logic.js（注入顺序见 lib/index.js）。
     //
-    // 发音交给浏览器自带语音（注入的 voice.js 提供 window.__dwlVoice，
-    // Windows 上就是系统里的 Microsoft 音色）：零网络、无密钥、离线可用。
-    //
-    // 为什么不用服务端发音 / 有道：用户明确只要浏览器自带的免费前端语音。
-    // 本文件只管按钮状态与失败提示；选音色、切句、取消、并发打断都在 voice.js 里。
+    // **不能做模块级快照**：DSH 的 client 入口是 immediately 的，可能先于我们动态插入的
+    // 脚本执行；快照到 undefined 后即使脚本随后到达也没人重读 → 页面 undefined.map 崩掉
+    // （2026-11-05 普通刷新事故）。这里每个函数都是「调用时才去读全局」的薄包装，
+    // 常量在渲染时读；就绪前入口只渲染加载态。
+    const assetOf = (name) => (window.__dwlDashboardLogic || {})[name]
+    const bind =
+      (name) =>
+      (...args) =>
+        (assetOf(name) || (() => undefined))(...args)
 
-    /** 语音模块没加载成功时的统一提示。 */
-    const VOICE_MISSING = '语音模块未加载，刷新页面重试'
+    const api = bind('api')
+    const fmtMD = bind('fmtMD')
+    const splitSenses = bind('splitSenses')
+    const wordSpot = bind('wordSpot')
+    const playWord = bind('playWord')
+    const loadAutoSpeak = bind('loadAutoSpeak')
+    const loadAccent = bind('loadAccent')
+    const saveAccent = bind('saveAccent')
+    const readView = bind('readView')
+    const normalizeSpelling = bind('normalizeSpelling')
+    const editDistance = bind('editDistance')
+    const spellCheck = bind('spellCheck')
+    const tierBadgeOf = bind('tierBadgeOf')
+    const tierLabelOf = bind('tierLabelOf')
+    const quizRating = bind('quizRating')
+    const writeRating = bind('writeRating')
+    const hoverPlacement = bind('hoverPlacement')
 
-    /** 取注入的语音模块；缺失时返回 null，调用方一律降级。 */
-    function voiceModule() {
-      return (typeof window !== 'undefined' && window.__dwlVoice) || null
+    /** 注入脚本是否都到齐：逻辑与样式缺一不可（只到逻辑时样式还是空串）。 */
+    const assetsReady = () => !!(window.__dwlDashboardLogic && window.__dwlDashboardCSS)
+
+    /** 就绪时回调一次：事件 + 20×50ms 兜底轮询（事件可能早于监听注册）。返回取消函数。 */
+    function whenAssetsReady(cb) {
+      if (assetsReady()) return (cb(), () => {})
+      let tries = 0
+      const fire = () => assetsReady() && (stop(), cb())
+      // 轮询有上限（20×50ms），但事件监听保留：慢网络下脚本晚到，事件仍能补上。
+      const timer = setInterval(() => (++tries >= 20 ? clearInterval(timer) : fire()), 50)
+      const stop = () => (
+        clearInterval(timer),
+        window.removeEventListener('dwl:assets-ready', fire)
+      )
+      window.addEventListener('dwl:assets-ready', fire)
+      return stop
     }
-
-    /** 把 voice.js 的失败码翻成一句人话（它抛的 Error 带 code）。 */
-    function voiceErrorText(err) {
-      const code = String((err && err.code) || '').toUpperCase()
-      if (code === 'UNSUPPORTED') return '这个浏览器不支持语音合成'
-      if (code === 'NO_VOICE') return '系统里没有可用的英文音色，检查系统语音包'
-      if (code === 'EMPTY_TEXT') return '没有要读的内容'
-      if (code === 'TIMEOUT') return '系统语音没有响应，再点一次试试'
-      if (code === 'SYNTH_FAILED') return '系统语音调用失败，请重试'
-      return (err && err.message) || '语音合成失败'
-    }
-
-    /** 被"重新点一次 / 切词"打断不算失败。 */
-    function isAbort(err) {
-      if (!err) return false
-      const code = String(err.code || '').toUpperCase()
-      return code === 'ABORTED' || code === 'interrupted' || code === 'canceled'
-    }
-
-    /** 朗读一个单词。读完 resolve；模块缺失/不支持时 reject（带一句人话）。 */
-    function playWord(word, accent) {
-      const text = String(word || '').trim()
-      if (!text) return Promise.reject(new Error('没有要读的内容'))
-      const mod = voiceModule()
-      if (!mod || typeof mod.speak !== 'function') {
-        return Promise.reject(new Error(VOICE_MISSING))
-      }
-      // 重播先停上一条（voice.js 内部也会打断，但显式一点更稳）
-      try {
-        if (typeof mod.stop === 'function') mod.stop()
-      } catch (err) {}
-      try {
-        return Promise.resolve(mod.speak(text, { accent: accent === 'uk' ? 'uk' : 'us' }))
-      } catch (err) {
-        return Promise.reject(err)
-      }
-    }
-
-    // ---- 学习时的自动发音开关（跟着浏览器走，和口音偏好的存法一致）----
-    const AUTO_SPEAK_KEY = 'dwl-auto-speak'
-
-    /** 默认开：进页面、看答案、拼完单词都自动读一遍。 */
-    function loadAutoSpeak() {
-      try {
-        return window.localStorage.getItem(AUTO_SPEAK_KEY) !== '0'
-      } catch (err) {
-        return true
-      }
-    }
-    function saveAutoSpeak(on) {
-      try {
-        window.localStorage.setItem(AUTO_SPEAK_KEY, on ? '1' : '0')
-      } catch (err) {}
-    }
-
-    // ---- 口音偏好读写（与 wordcard.js 共用同一个 localStorage key）----
-    function loadAccent() {
-      try {
-        return window.localStorage.getItem(ACCENT_KEY) === 'uk' ? 'uk' : 'us'
-      } catch (_) {
-        return 'us'
-      }
-    }
-    function saveAccent(v) {
-      try {
-        window.localStorage.setItem(ACCENT_KEY, v)
-      } catch (_) {}
-    }
-
-    /** 读上次的视图。localStorage 在隐私模式下会抛，所以包一层。 */
-    function readView() {
-      try {
-        const v = window.localStorage.getItem(VIEW_KEY)
-        if (v === 'study' || v === 'vocab' || v === 'stats') return v
-      } catch (err) {}
-      return 'study'
-    }
-
-    function saveView(v) {
-      try {
-        window.localStorage.setItem(VIEW_KEY, v)
-      } catch (err) {}
-    }
-
-    /** 估算剩余时间：一个词大约 8 秒（回忆 + 评分）。 */
-    function estimateMinutes(n) {
-      if (n <= 0) return '0 分钟'
-      const sec = n * 8
-      if (sec < 60) return '不到 1 分钟'
-      return `约 ${Math.round(sec / 60)} 分钟`
-    }
-
-    // ---------------------------------------------------------------- 样式
-
-    const CSS = `
-.dwl-page{
-  --dwl-shadow:0 1px 2px rgba(24,24,20,.05),0 14px 30px -20px rgba(24,24,20,.42);
-  --dwl-tint:rgba(17,17,17,.045);
-  --dwl-btn-bg:var(--dsw-alias-bg-layer-1,#ffffff);
-  --dwl-btn-border:var(--dsw-alias-border-l2,rgba(15,23,42,.18));
-  --dwl-error-bg:rgba(229,57,53,.08);--dwl-accent:#0d9488;
-  /* 判分按钮的文字色：状态令牌本身就是"点缀色"，直接当 13px 文字用会不达标
-     （浅色下 warn #f59e0b 对白底只有 2.2:1，success #22c55e 只有 2.4:1）。
-     这里给两套"文字专用"色：浅色取 700 级，深色取 400/300 级。实测见 DESIGN.md。 */
-  --dwl-again-text:#b91c1c;--dwl-hard-text:#b45309;
-  --dwl-good-text:#15803d;--dwl-easy-text:#1d4ed8;
-  height:100%;overflow:auto;box-sizing:border-box;
-  background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);
-  font-size:13.5px;line-height:1.6;-webkit-font-smoothing:antialiased;
-}
-body[data-ds-dark-theme] .dwl-page{
-  --dwl-shadow:0 1px 2px rgba(0,0,0,.5),0 14px 30px -20px rgba(0,0,0,1);
-  --dwl-tint:rgba(255,255,255,.055);
-  --dwl-btn-bg:rgba(255,255,255,.08);
-  --dwl-btn-border:rgba(255,255,255,.34);
-  --dwl-error-bg:rgba(229,57,53,.16);--dwl-accent:#2dd4bf;
-  --dwl-again-text:#f87171;--dwl-hard-text:#fbbf24;
-  --dwl-good-text:#4ade80;--dwl-easy-text:#93c5fd;
-  color-scheme:dark;
-}
-.dwl-page *{box-sizing:border-box}
-.dwl-page :focus-visible{outline:2px solid var(--dsw-alias-brand-primary,#0d9488);outline-offset:2px;border-radius:8px}
-.dwl-wrap{max-width:760px;margin:0 auto;padding:0 24px 56px;min-height:100%;display:flex;flex-direction:column}
-
-/* 顶部：视图切换 */
-.dwl-top{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:12px;height:52px;flex:none;
-  background:var(--dsw-alias-bg-base)}
-.dwl-tabs{display:flex;gap:2px;margin-right:auto}
-.dwl-tab{position:relative;font:inherit;font-size:13px;padding:6px 12px;border-radius:8px;border:0;background:transparent;
-  color:var(--dsw-alias-label-tertiary);cursor:pointer;transition:background .15s ease,color .15s ease}
-.dwl-tab:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-secondary)}
-.dwl-tab[aria-selected="true"]{color:var(--dsw-alias-label-primary);font-weight:600;background:var(--dwl-tint)}
-.dwl-tab[aria-selected="true"]::after{content:"";position:absolute;left:12px;right:12px;bottom:1px;height:2px;border-radius:2px;background:var(--dsw-alias-brand-primary)}
-.dwl-pill{display:inline-flex;align-items:center;gap:5px;font-size:12px;color:var(--dsw-alias-label-secondary);
-  padding:4px 10px;border-radius:99px;background:var(--dwl-tint);flex:none}
-.dwl-pill b{color:var(--dsw-alias-state-warn-primary);font-variant-numeric:tabular-nums}
-
-/* 今日进度 */
-.dwl-meter{margin-top:4px;flex:none}
-.dwl-track{height:3px;border-radius:2px;background:var(--dsw-alias-bg-skeleton);overflow:hidden}
-.dwl-track i{display:block;height:100%;border-radius:2px;background:var(--dsw-alias-brand-primary);
-  transition:width .45s cubic-bezier(.22,1,.36,1)}
-.dwl-legend-line{display:flex;justify-content:space-between;align-items:baseline;gap:12px;
-  margin-top:9px;font-size:12px;color:var(--dsw-alias-label-secondary)}
-.dwl-legend-line b{color:var(--dsw-alias-label-primary);font-size:14px;font-variant-numeric:tabular-nums}
-
-/* 一屏一词 */
-.dwl-study{flex:1;display:flex;flex-direction:column;justify-content:center;padding:8px 0 0}
-.dwl-focus{display:flex;flex-direction:column;align-items:center;text-align:center;animation:dwl-in .22s ease}
-@keyframes dwl-in{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
-.dwl-word{font-family:ui-serif,Georgia,"Songti SC",serif;font-size:clamp(34px,5.8vw,50px);
-  line-height:1.12;font-weight:600;letter-spacing:-.015em;word-break:break-word;max-width:100%}
-.dwl-phon{margin-top:14px;display:flex;align-items:center;justify-content:center;gap:9px;flex-wrap:wrap;
-  font-size:13px;color:var(--dsw-alias-label-secondary);font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
-.dwl-pos{font-family:-apple-system,sans-serif;font-style:normal;font-size:11.5px;padding:1px 7px;
-  border-radius:5px;background:var(--dwl-tint);color:var(--dsw-alias-label-secondary)}
-.dwl-flag{font-size:11.5px;color:var(--dsw-alias-state-warn-primary);font-family:-apple-system,sans-serif}
-
-/* 发音按钮 + 口音切换 */
-.dwl-speak{display:inline-flex;align-items:center;gap:0;margin-left:2px}
-.dwl-speak-btn{display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;
-  border:0;background:transparent;cursor:pointer;border-radius:6px;padding:0;
-  color:var(--dsw-alias-label-tertiary);transition:color .15s ease,background .15s ease}
-.dwl-speak-btn:hover{color:var(--dsw-alias-brand-primary);background:var(--dwl-tint)}
-.dwl-speak-btn[data-busy="1"]{pointer-events:none;opacity:.5}
-.dwl-speak-btn[data-done="1"]{color:var(--dsw-alias-state-success-primary)}
-.dwl-speak-btn svg{width:16px;height:16px;fill:currentColor}
-.dwl-accent{font:inherit;font-size:10px;font-weight:700;letter-spacing:.04em;padding:2px 6px;
-  border:1px solid var(--dwl-btn-border);border-radius:5px;background:var(--dwl-btn-bg);
-  color:var(--dsw-alias-label-tertiary);cursor:pointer;transition:color .15s ease,border-color .15s ease}
-.dwl-accent:hover{color:var(--dsw-alias-brand-primary);border-color:var(--dsw-alias-brand-primary)}
-
-/* 先藏后揭 */
-.dwl-reveal{margin-top:24px;min-height:150px;width:100%;display:flex;flex-direction:column;
-  align-items:center;justify-content:center}
-.dwl-veil{display:inline-flex;align-items:center;gap:8px;border:1.5px dashed var(--dsw-alias-brand-primary,#0d9488);
-  background:var(--dwl-tint);border-radius:10px;padding:10px 16px;cursor:pointer;font:inherit;font-size:12.5px;
-  color:var(--dsw-alias-label-secondary);transition:background .15s ease,border-color .15s ease}
-.dwl-veil:hover{background:var(--dsw-alias-interactive-bg-hover);border-color:var(--dsw-alias-brand-primary)}
-.dwl-body{display:none;width:100%}
-.dwl-reveal[data-on="1"] .dwl-veil{display:none}
-.dwl-reveal[data-on="1"] .dwl-body{display:block;animation:dwl-fade .2s ease}
-@keyframes dwl-fade{from{opacity:0}to{opacity:1}}
-.dwl-meaning{font-size:17px;line-height:1.55}
-.dwl-meaning .lead{color:var(--dsw-alias-brand-primary)}
-.dwl-sense{margin-top:6px;font-size:13.5px;color:var(--dsw-alias-label-secondary)}
-.dwl-hintline{margin-top:14px;font-size:12px;color:var(--dsw-alias-label-secondary)}
-
-/* 补记：回忆 → 对照 → 拼写 */
-.dwl-sentence{margin-top:16px;width:100%;text-align:left;font-size:15px;line-height:1.7;
-  color:var(--dsw-alias-label-secondary);word-break:break-word}
-.dwl-sentence mark{background:rgba(13,148,136,.14);color:inherit;border-radius:3px;padding:0 2px}
-.dwl-blank{color:var(--dsw-alias-brand-primary);font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
-  letter-spacing:.04em}
-.dwl-recall{width:100%;margin-top:14px}
-.dwl-recall textarea{width:100%;min-height:62px;resize:vertical;font:inherit;font-size:14px;
-  padding:10px 12px;border-radius:10px;color:inherit;background:var(--dsw-alias-bg-layer-1);
-  border:1px solid var(--dwl-btn-border)}
-.dwl-recall textarea:focus{border-color:var(--dsw-alias-brand-primary);outline:none}
-.dwl-compare{margin-top:4px;padding:10px 14px;border-radius:9px;background:var(--dwl-tint);text-align:left}
-.dwl-compare .k{font-size:11px;letter-spacing:.05em;color:var(--dsw-alias-label-secondary)}
-.dwl-compare .v{font-size:15px;margin-top:2px}
-.dwl-cloze-input{width:100%;margin-top:14px;padding:10px 12px;border-radius:10px;font:inherit;
-  font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:16px;letter-spacing:.04em;
-  color:inherit;background:var(--dsw-alias-bg-layer-1);border:1px solid var(--dwl-btn-border)}
-.dwl-cloze-input:focus{border-color:var(--dsw-alias-brand-primary);outline:none}
-.dwl-answerline{display:flex;align-items:baseline;justify-content:center;gap:8px;margin-top:12px;
-  font-size:15px;color:var(--dsw-alias-label-primary)}
-.dwl-answerline .k{font-size:12px;color:var(--dsw-alias-label-secondary)}
-.dwl-answerline b{font-size:20px;letter-spacing:.03em;color:var(--dsw-alias-brand-primary);
-  font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
-.dwl-action-row button:disabled{opacity:.5;cursor:default}
-.dwl-pick{display:grid;grid-template-columns:1fr 1fr;gap:8px;width:100%;margin-top:14px}
-.dwl-pick-btn{min-height:44px;padding:8px 10px;border-radius:10px;font:inherit;font-size:14px;
-  color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-layer-1);
-  border:1px solid var(--dwl-btn-border);cursor:pointer;transition:border-color .14s ease,background .14s ease}
-.dwl-pick-btn:hover:not(:disabled){border-color:var(--dsw-alias-brand-primary);background:var(--dwl-tint)}
-.dwl-pick-btn:disabled{opacity:.6;cursor:default}
-.dwl-contrast{width:100%;margin-top:8px;text-align:left;font-size:16px;line-height:1.7}
-.dwl-contrast b{color:var(--dsw-alias-state-warn-primary)}
-.dwl-contrast b.right{color:var(--dsw-alias-brand-primary)}
-.dwl-why{margin-top:12px;padding:10px 14px;border-radius:9px;text-align:left;font-size:13.5px;
-  line-height:1.65;color:var(--dsw-alias-label-secondary);
-  background:var(--dwl-tint);border-left:3px solid var(--dsw-alias-brand-primary)}
-.dwl-etym{margin-top:10px;font-size:12.5px;line-height:1.6;text-align:left;
-  color:var(--dsw-alias-label-tertiary)}
-
-/* 评分：4 个 48px 目标 */
-.dwl-rate{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;width:100%;margin-top:14px}
-.dwl-rate button{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;
-  min-height:48px;padding:8px 4px;border-radius:11px;cursor:pointer;font:inherit;
-  border:1px solid var(--dwl-btn-border);background:var(--dsw-alias-bg-layer-1);
-  transition:transform .12s ease,background .14s ease,border-color .14s ease,box-shadow .14s ease}
-.dwl-rate button:hover:not(:disabled){transform:translateY(-1px);box-shadow:var(--dwl-shadow)}
-.dwl-rate button:active:not(:disabled){transform:none}
-.dwl-rate button:disabled{opacity:.5;cursor:default}
-.dwl-rate .rl{font-size:13px;font-weight:600}
-.dwl-rate .rk{font-size:10px;color:var(--dsw-alias-label-secondary);font-variant-numeric:tabular-nums}
-.dwl-rate button[data-tone="again"]{border-color:rgba(220,38,38,.35);background:rgba(220,38,38,.06)}
-.dwl-rate button[data-tone="again"] .rl{color:var(--dwl-again-text)}
-.dwl-rate button[data-tone="again"]:hover:not(:disabled){border-color:var(--dsw-alias-state-error-primary);background:rgba(220,38,38,.10)}
-.dwl-rate button[data-tone="again"]:hover:not(:disabled) .rl{color:var(--dwl-again-text)}
-.dwl-rate button[data-tone="hard"]{border-color:rgba(217,119,6,.35);background:rgba(217,119,6,.06)}
-.dwl-rate button[data-tone="hard"] .rl{color:var(--dwl-hard-text)}
-.dwl-rate button[data-tone="hard"]:hover:not(:disabled){border-color:var(--dsw-alias-state-warn-primary);background:rgba(217,119,6,.10)}
-.dwl-rate button[data-tone="hard"]:hover:not(:disabled) .rl{color:var(--dwl-hard-text)}
-.dwl-rate button[data-tone="good"]{border-color:rgba(22,163,74,.35);background:rgba(22,163,74,.06)}
-.dwl-rate button[data-tone="good"] .rl{color:var(--dwl-good-text)}
-.dwl-rate button[data-tone="good"]:hover:not(:disabled){border-color:var(--dsw-alias-state-success-primary);background:rgba(22,163,74,.10)}
-.dwl-rate button[data-tone="good"]:hover:not(:disabled) .rl{color:var(--dwl-good-text)}
-.dwl-rate button[data-tone="easy"]{border-color:rgba(37,99,235,.35);background:rgba(37,99,235,.06)}
-.dwl-rate button[data-tone="easy"] .rl{color:var(--dwl-easy-text)}
-.dwl-rate button[data-tone="easy"]:hover:not(:disabled){border-color:var(--dsw-alias-state-business-primary);background:rgba(37,99,235,.10)}
-.dwl-rate button[data-tone="easy"]:hover:not(:disabled) .rl{color:var(--dwl-easy-text)}
-
-/* 三分支自评 */
-.dwl-branch{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;width:100%;margin-top:20px}
-.dwl-branch button{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;
-  min-height:56px;padding:10px 6px;border-radius:12px;cursor:pointer;font:inherit;
-  border:1.5px solid var(--dwl-btn-border);background:var(--dsw-alias-bg-layer-1);
-  transition:transform .12s ease,background .14s ease,border-color .14s ease,box-shadow .14s ease}
-.dwl-branch button:hover:not(:disabled){transform:translateY(-1px);box-shadow:var(--dwl-shadow)}
-.dwl-branch button:active:not(:disabled){transform:none}
-.dwl-branch button:disabled{opacity:.65;cursor:default;transform:none;filter:grayscale(.2)}
-.dwl-branch .bl{font-size:15px;font-weight:700}
-.dwl-branch .bd{font-size:11px;color:var(--dsw-alias-label-secondary)}
-.dwl-branch button[data-tone="again"]{border-color:rgba(220,38,38,.35);background:rgba(220,38,38,.06)}
-.dwl-branch button[data-tone="again"] .bl{color:var(--dwl-again-text)}
-.dwl-branch button[data-tone="again"]:hover:not(:disabled){border-color:var(--dsw-alias-state-error-primary);background:rgba(220,38,38,.10)}
-.dwl-branch button[data-tone="again"]:hover:not(:disabled) .bl{color:var(--dwl-again-text)}
-.dwl-branch button[data-tone="hard"]{border-color:rgba(217,119,6,.35);background:rgba(217,119,6,.06)}
-.dwl-branch button[data-tone="hard"] .bl{color:var(--dwl-hard-text)}
-.dwl-branch button[data-tone="hard"]:hover:not(:disabled){border-color:var(--dsw-alias-state-warn-primary);background:rgba(217,119,6,.10)}
-.dwl-branch button[data-tone="hard"]:hover:not(:disabled) .bl{color:var(--dwl-hard-text)}
-.dwl-branch button[data-tone="good"]{border-color:rgba(22,163,74,.35);background:rgba(22,163,74,.06)}
-.dwl-branch button[data-tone="good"] .bl{color:var(--dwl-good-text)}
-.dwl-branch button[data-tone="good"]:hover:not(:disabled){border-color:var(--dsw-alias-state-success-primary);background:rgba(22,163,74,.10)}
-.dwl-branch button[data-tone="good"]:hover:not(:disabled) .bl{color:var(--dwl-good-text)}
-
-/* 记忆提示（词根/场景/mnemonic） */
-.dwl-hints{width:100%;margin-top:18px;text-align:left;animation:dwl-fade .25s ease}
-.dwl-hint-section{margin-top:12px}
-.dwl-hint-section:first-child{margin-top:0}
-.dwl-hint-label{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;
-  color:var(--dsw-alias-label-tertiary);margin-bottom:6px}
-.dwl-hint-roots{display:flex;flex-wrap:wrap;gap:6px}
-.dwl-root-tag{display:inline-flex;align-items:center;gap:4px;padding:4px 10px;border-radius:7px;
-  background:var(--dwl-tint);font-size:12.5px}
-.dwl-root-tag .part{font-weight:700;color:var(--dsw-alias-brand-primary)}
-.dwl-root-tag .rmean{color:var(--dsw-alias-label-secondary)}
-.dwl-mnemonic{font-size:13.5px;line-height:1.65;color:var(--dsw-alias-label-secondary);
-  padding:10px 14px;border-radius:9px;background:var(--dwl-tint);border-left:3px solid var(--dsw-alias-brand-primary)}
-.dwl-confusables{display:flex;flex-wrap:wrap;gap:6px;font-size:12.5px}
-
-/* 悬浮释义：易混淆词/近义词这种"只给一个英文词"的地方，停留就浮出释义卡 */
-.dwl-hoverword{position:relative;display:inline-block;padding:3px 8px;border-radius:6px;
-  background:var(--dwl-tint);color:var(--dsw-alias-label-secondary);cursor:help;
-  outline:none;font-size:12.5px;line-height:1.5;
-  text-decoration:underline dotted var(--dsw-alias-label-tertiary);text-underline-offset:2px}
-.dwl-hoverword:hover,.dwl-hoverword:focus-visible{color:var(--dsw-alias-label-primary);
-  box-shadow:inset 0 0 0 1px var(--dwl-btn-border)}
-.dwl-hovercard{position:fixed;z-index:9995;display:block;padding:10px 12px;border-radius:10px;
-  background:var(--dsw-alias-bg-layer-1,#fff);border:1px solid var(--dwl-btn-border);
-  box-shadow:0 10px 28px rgba(0,0,0,.2);font-size:12.5px;line-height:1.55;
-  color:var(--dsw-alias-label-primary);text-align:left;cursor:auto;animation:dwl-fade .12s ease}
-body[data-ds-dark-theme] .dwl-hovercard{background:var(--dsw-alias-bg-layer-1,#242424);
-  box-shadow:0 12px 32px rgba(0,0,0,.6),0 0 0 1px rgba(255,255,255,.08)}
-.dwl-hovercard-head{display:flex;align-items:baseline;gap:6px;margin-bottom:6px}
-.dwl-hovercard-head b{font-size:15px;font-family:ui-serif,Georgia,"Songti SC",serif}
-.dwl-hovercard-head i{font-style:normal;font-size:11.5px;color:var(--dsw-alias-label-secondary)}
-.dwl-hovercard-senses{display:flex;flex-direction:column;gap:3px;margin-bottom:8px}
-.dwl-hovercard-sense{display:block;color:var(--dsw-alias-label-secondary)}
-.dwl-hovercard-foot{display:flex;align-items:center;gap:8px;
-  border-top:1px solid var(--dwl-btn-border);padding-top:8px}
-.dwl-hovercard-add{font:inherit;font-size:12px;font-weight:600;padding:4px 10px;border-radius:7px;
-  border:1px solid transparent;background:var(--dsw-alias-brand-primary);
-  color:var(--dsw-alias-bg-base);cursor:pointer}
-.dwl-hovercard-add:disabled{opacity:.5;cursor:default}
-.dwl-hovercard-saved{font-size:12px;color:var(--dsw-alias-state-success-primary)}
-.dwl-hovercard-loading{color:var(--dsw-alias-label-secondary);font-size:12px}
-.dwl-hovercard-err{color:var(--dsw-alias-state-error-primary);font-size:12px}
-
-/* 选择题 */
-.dwl-quiz{width:100%;margin-top:18px;animation:dwl-fade .25s ease}
-.dwl-quiz-title{font-size:13px;font-weight:600;color:var(--dsw-alias-label-secondary);margin-bottom:10px;text-align:left}
-.dwl-options{display:flex;flex-direction:column;gap:6px}
-.dwl-opt{display:flex;align-items:center;gap:10px;padding:10px 14px;border-radius:10px;cursor:pointer;
-  border:1.5px solid var(--dwl-btn-border);background:var(--dsw-alias-bg-layer-1);
-  font:inherit;font-size:13.5px;text-align:left;width:100%;
-  transition:border-color .15s ease,background .15s ease}
-.dwl-opt:hover:not([data-locked]){border-color:var(--dsw-alias-brand-primary);background:var(--dwl-tint)}
-.dwl-opt[data-checked="1"]{border-color:var(--dsw-alias-state-success-primary);
-  background:color-mix(in srgb, var(--dsw-alias-state-success-primary) 8%, transparent)}
-.dwl-opt[data-wrong="1"]{border-color:var(--dsw-alias-state-error-primary);
-  background:color-mix(in srgb, var(--dsw-alias-state-error-primary) 8%, transparent);
-  animation:dwl-shake .35s ease}
-@keyframes dwl-shake{0%,100%{transform:none}25%{transform:translateX(-4px)}75%{transform:translateX(4px)}}
-.dwl-opt[data-locked]{cursor:default}
-.dwl-opt .check{width:18px;height:18px;border-radius:5px;border:1.5px solid var(--dwl-btn-border);
-  flex:none;display:flex;align-items:center;justify-content:center;
-  transition:border-color .15s ease,background .15s ease}
-.dwl-opt[data-checked="1"] .check{border-color:var(--dsw-alias-state-success-primary);
-  background:var(--dsw-alias-state-success-primary);color:#fff}
-.dwl-opt[data-wrong="1"] .check{border-color:var(--dsw-alias-state-error-primary);
-  background:var(--dsw-alias-state-error-primary);color:#fff}
-.dwl-quiz-score{margin-top:14px;text-align:center;font-size:14px;font-weight:600;animation:dwl-fade .3s ease}
-.dwl-quiz-score .pct{font-size:20px;font-variant-numeric:tabular-nums}
-.dwl-quiz-score .ok{color:var(--dsw-alias-state-success-primary)}
-.dwl-quiz-score .meh{color:var(--dsw-alias-state-warn-primary)}
-.dwl-quiz-score .bad{color:var(--dsw-alias-state-error-primary)}
-
-/* 写得出：看中文拼单词 */
-.dwl-word-cn{font-family:inherit;font-size:clamp(19px,2.8vw,25px);line-height:1.5;font-weight:600;
-  letter-spacing:0;max-width:36em}
-.dwl-write{display:flex;gap:8px;align-items:stretch}
-.dwl-write input{flex:1 1 auto;min-width:0;font:inherit;font-size:19px;letter-spacing:.02em;
-  padding:10px 12px;border-radius:10px;border:1px solid var(--dwl-btn-border);
-  background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);outline:none}
-.dwl-write input:focus{border-color:var(--dsw-alias-brand-primary);box-shadow:0 0 0 3px var(--dwl-tint)}
-.dwl-write input[data-state="exact"]{border-color:var(--dsw-alias-state-success-primary)}
-.dwl-write input[data-state="close"]{border-color:var(--dsw-alias-state-warn-primary)}
-.dwl-write input[data-state="miss"]{border-color:var(--dsw-alias-state-error-primary)}
-.dwl-write button{font:inherit;font-size:13px;font-weight:600;padding:0 18px;border-radius:10px;
-  border:1px solid transparent;background:var(--dsw-alias-brand-primary);
-  color:var(--dsw-alias-bg-base);cursor:pointer}
-.dwl-write button:disabled{opacity:.45;cursor:default}
-.dwl-write-result{margin-top:12px;font-size:14px;line-height:1.7;color:var(--dsw-alias-label-secondary)}
-.dwl-write-result>div:first-child{font-weight:600}
-.dwl-write-result[data-state="exact"]>div:first-child{color:var(--dsw-alias-state-success-primary)}
-.dwl-write-result[data-state="close"]>div:first-child{color:var(--dsw-alias-state-warn-primary)}
-.dwl-write-result[data-state="miss"]>div:first-child{color:var(--dsw-alias-state-error-primary)}
-.dwl-write-result b{font-family:ui-serif,Georgia,"Songti SC",serif;font-size:18px;
-  color:var(--dsw-alias-label-primary)}
-
-/* 分支内的操作按钮 */
-.dwl-action-row{display:flex;justify-content:center;gap:10px;margin-top:16px}
-.dwl-action-row button{font:inherit;font-size:13px;font-weight:600;padding:8px 20px;border-radius:9px;
-  cursor:pointer;border:1.5px solid var(--dwl-btn-border);background:var(--dsw-alias-bg-layer-1);
-  color:var(--dsw-alias-label-primary);transition:transform .12s ease,border-color .14s ease,box-shadow .14s ease}
-.dwl-action-row button:hover:not(:disabled){transform:translateY(-1px);box-shadow:var(--dwl-shadow);
-  border-color:var(--dsw-alias-brand-primary)}
-.dwl-action-row button.primary{background:var(--dsw-alias-brand-primary);color:var(--dsw-alias-bg-base);border-color:transparent}
-.dwl-action-row button.primary:hover:not(:disabled){filter:brightness(1.12);box-shadow:0 4px 12px rgba(0,0,0,.2)}
-.dwl-action-row button:disabled{opacity:.65;cursor:default;transform:none;filter:grayscale(.2)}
-
-/* 底部：进度点 + 快捷键 */
-.dwl-tail{margin-top:16px;display:flex;flex-direction:column;align-items:center;gap:10px;padding-bottom:4px}
-.dwl-dots{display:flex;gap:5px;justify-content:center;flex-wrap:wrap;max-width:420px}
-/* 未到的点用描边而不是填充：填充色只有 1 个 token 的差值，
-   在浅色底上几乎看不见，进度就读不出来 */
-.dwl-dots i{width:7px;height:7px;border-radius:50%;box-sizing:border-box;
-  border:1px solid var(--dsw-alias-label-tertiary);opacity:.85}
-.dwl-dots i.done{background:var(--dsw-alias-brand-primary);border-color:transparent;opacity:1}
-.dwl-dots i.now{background:var(--dsw-alias-label-primary);border-color:transparent;opacity:1;
-  transform:scale(1.45)}
-.dwl-keys{display:flex;align-items:center;justify-content:center;gap:6px;flex-wrap:wrap;
-  font-size:11.5px;color:var(--dsw-alias-label-secondary)}
-.dwl-page kbd{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:10.5px;line-height:1;
-  padding:3px 5px;border-radius:4px;border:1px solid var(--dwl-btn-border);border-bottom-width:2px;
-  color:var(--dsw-alias-label-secondary)}
-
-/* 空 / 完成 / 骨架 */
-.dwl-mid{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;
-  text-align:center;gap:10px;padding:40px 0}
-.dwl-mid .big{font-size:34px;font-weight:650;line-height:1.2;font-variant-numeric:tabular-nums}
-.dwl-mid .ttl{font-size:15px;font-weight:600}
-.dwl-mid .sub{font-size:12.5px;color:var(--dsw-alias-label-tertiary);max-width:36ch;line-height:1.7}
-.dwl-btn{font:inherit;font-size:12.5px;padding:7px 14px;border-radius:8px;cursor:pointer;
-  border:1px solid var(--dwl-btn-border);background:var(--dsw-alias-bg-layer-1);
-  color:var(--dsw-alias-label-primary);transition:background .14s ease}
-.dwl-btn:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover)}
-.dwl-btn.primary{background:var(--dsw-alias-brand-primary);border-color:transparent;
-  color:var(--dsw-alias-bg-base)}
-.dwl-btn.primary:hover:not(:disabled){opacity:.9;background:var(--dsw-alias-brand-primary)}
-.dwl-skel{height:11px;border-radius:5px;background:var(--dsw-alias-bg-skeleton);margin:8px 0}
-
-/* 词汇 */
-.dwl-vocab{padding-top:8px;flex:1;display:flex;flex-direction:column}
-.dwl-search{display:flex;align-items:center;gap:9px;border:1px solid var(--dwl-btn-border);
-  border-radius:10px;padding:9px 12px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-tertiary)}
-.dwl-search input{flex:1;min-width:0;border:0;background:transparent;color:var(--dsw-alias-label-primary);
-  font:inherit;font-size:13px;outline:none}
-.dwl-search input::placeholder{color:var(--dsw-alias-label-tertiary)}
-.dwl-chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:12px}
-.dwl-chip{font:inherit;font-size:11.5px;padding:6px 12px;border-radius:99px;cursor:pointer;
-  border:1px solid var(--dwl-btn-border);background:var(--dwl-btn-bg);color:var(--dsw-alias-label-secondary);
-  transition:background .14s ease,color .14s ease}
-.dwl-chip:hover{background:var(--dsw-alias-interactive-bg-hover)}
-.dwl-chip[aria-pressed="true"]{background:var(--dwl-tint);color:var(--dsw-alias-label-primary);font-weight:600;box-shadow:inset 0 0 0 1px var(--dsw-alias-label-primary)}
-.dwl-vlist{display:grid;grid-template-columns:1fr 1fr;gap:1px 18px;margin-top:12px}
-.dwl-vlist-virtual{display:block;max-height:min(60vh, 600px);margin-top:12px}
-.dwl-vrow{display:flex;align-items:baseline;gap:8px;padding:8px 10px;border-radius:7px;min-height:40px;
-  transition:background .12s ease}
-.dwl-vrow:hover{background:var(--dsw-alias-interactive-bg-hover)}
-.dwl-vrow .w{font-weight:600;font-size:13.5px;flex:none}
-.dwl-vrow .p{font-size:10.5px;color:var(--dsw-alias-label-secondary);
-  font-family:ui-monospace,SFMono-Regular,Menlo,monospace;flex:none}
-.dwl-vrow .t{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
-  font-size:12px;color:var(--dsw-alias-label-secondary)}
-.dwl-vrow .m{flex:none;font-size:10.5px;color:var(--dsw-alias-label-tertiary);font-variant-numeric:tabular-nums}
-.dwl-more{display:flex;justify-content:center;align-items:center;margin:18px 0 0;gap:10px;font-size:11.5px;
-  color:var(--dsw-alias-label-tertiary)}
-
-/* 数据 */
-.dwl-stats{padding-top:14px;display:flex;flex-direction:column;gap:14px;flex:1}
-.dwl-kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:var(--dsw-alias-border-l2);
-  border:1px solid var(--dwl-btn-border);border-radius:11px;overflow:hidden}
-.dwl-kpi{background:var(--dsw-alias-bg-layer-1);padding:12px 14px;min-width:0}
-.dwl-kpi .n{font-size:20px;font-weight:650;line-height:1.2;font-variant-numeric:tabular-nums}
-.dwl-kpi .l{font-size:11px;color:var(--dsw-alias-label-tertiary);margin-top:2px;
-  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.dwl-panel{border:1px solid var(--dwl-btn-border);border-radius:11px;
-  background:var(--dsw-alias-bg-layer-1);padding:14px 16px;min-width:0}
-.dwl-panel>h3{margin:0 0 12px;font-size:12px;font-weight:600;color:var(--dsw-alias-label-secondary);
-  display:flex;justify-content:space-between;align-items:baseline;gap:8px}
-.dwl-panel>h3 span{font-weight:400;color:var(--dsw-alias-label-tertiary);font-size:11px}
-.dwl-bars{display:flex;align-items:flex-end;gap:4px;height:64px}
-.dwl-bars i{flex:1;min-width:0;border-radius:3px 3px 0 0;background:var(--dwl-accent);
-  opacity:.9;min-height:2px;transition:opacity .14s ease}
-.dwl-bars i.zero{opacity:.3;background:var(--dsw-alias-bg-skeleton)}
-.dwl-axis{display:flex;gap:4px;margin-top:5px}
-.dwl-axis span{flex:1;text-align:center;font-size:9.5px;color:var(--dsw-alias-label-tertiary);
-  overflow:hidden;white-space:nowrap}
-.dwl-prog{height:7px;border-radius:4px;background:var(--dsw-alias-bg-skeleton);overflow:hidden;
-  display:flex;margin:8px 0 9px}
-.dwl-prog i{display:block;height:100%}
-.dwl-lgd{display:flex;flex-wrap:wrap;gap:12px;font-size:11.5px;color:var(--dsw-alias-label-secondary)}
-.dwl-lgd span{display:inline-flex;align-items:center;gap:5px}
-.dwl-dot{width:8px;height:8px;border-radius:50%;flex:none;display:inline-block}
-.dwl-abrow{display:flex;align-items:center;gap:10px;margin-top:8px}
-.dwl-abrow:first-of-type{margin-top:0}
-.dwl-abrow .nm{width:36px;flex:none;font-size:12px;color:var(--dsw-alias-label-secondary)}
-.dwl-abrow .hist{flex:1;min-width:0;display:flex;gap:3px;align-items:flex-end;height:24px}
-.dwl-abrow .hist i{flex:1;border-radius:2px 2px 0 0;background:var(--dwl-accent);min-height:2px}
-.dwl-abrow .hi{font-size:10.5px;color:var(--dsw-alias-label-tertiary);
-  font-variant-numeric:tabular-nums;flex:none;width:52px;text-align:right}
-.dwl-dist{display:flex;align-items:center;gap:9px;font-size:11.5px;margin-top:7px}
-.dwl-dist:first-of-type{margin-top:0}
-.dwl-dist .nm{width:44px;flex:none;color:var(--dsw-alias-label-secondary)}
-.dwl-dist .bar{flex:1;height:8px;border-radius:4px;background:var(--dsw-alias-bg-skeleton);overflow:hidden}
-.dwl-dist .bar i{display:block;height:100%}
-.dwl-dist .v{width:56px;text-align:right;flex:none;font-variant-numeric:tabular-nums;
-  color:var(--dsw-alias-label-tertiary)}
-.dwl-rows{display:flex;flex-direction:column;gap:1px}
-.dwl-row{display:flex;align-items:baseline;gap:10px;padding:6px 8px;border-radius:7px}
-.dwl-row .w{font-weight:600;font-size:13px;flex:none;min-width:88px}
-.dwl-row .t{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
-  color:var(--dsw-alias-label-secondary);font-size:12px}
-.dwl-row .m{flex:none;font-size:11px;color:var(--dsw-alias-label-tertiary);font-variant-numeric:tabular-nums}
-.dwl-note{font-size:11.5px;color:var(--dsw-alias-label-tertiary);margin-top:10px;line-height:1.65}
-.dwl-err{color:var(--dsw-alias-state-error-primary);font-size:12.5px}
-.dwl-banner{display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:9px;
-  border:1px solid var(--dsw-alias-state-error-primary);font-size:12px;margin-bottom:10px;flex:none}
-.dwl-banner span{flex:1;min-width:0;color:var(--dsw-alias-state-error-primary)}
-
-@media (max-width:620px){
-  .dwl-wrap{padding:0 16px 48px}
-  .dwl-vlist{grid-template-columns:1fr}
-  .dwl-kpis{grid-template-columns:1fr 1fr}
-  .dwl-rate{gap:6px}
-  .dwl-branch{gap:6px}
-  .dwl-branch .bl{font-size:13px}
-  .dwl-word{font-size:32px}
-  .dwl-opt{padding:8px 12px;font-size:12.5px}
-}
-@media (prefers-reduced-motion:reduce){
-  .dwl-page *,.dwl-page *::before,.dwl-page *::after{animation:none!important;transition:none!important}
-}
-
-/* ── WordMeta 弹窗 ─────────────────────────────── */
-.dwl-modal-overlay{position:fixed;inset:0;z-index:9990;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;animation:dwl-fade .15s ease;backdrop-filter:blur(2px)}
-.dwl-modal{position:relative;background:var(--dsw-alias-bg-layer-1,#fff);border-radius:14px;box-shadow:0 12px 40px rgba(0,0,0,.25);width:min(480px,92vw);max-height:82vh;overflow-y:auto;padding:24px 22px 18px;animation:dwl-slide-up .2s ease}
-body[data-ds-dark-theme] .dwl-modal{background:var(--dsw-alias-bg-layer-1,#242424);box-shadow:0 12px 48px rgba(0,0,0,.6),0 0 0 1px rgba(255,255,255,.08)}
-@keyframes dwl-slide-up{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:none}}
-.dwl-modal-close{position:absolute;top:10px;right:12px;background:none;border:none;cursor:pointer;font-size:18px;color:var(--dsw-alias-label-tertiary);padding:6px 8px;border-radius:6px;min-width:32px;min-height:32px;display:inline-flex;align-items:center;justify-content:center;transition:background .12s,color .12s}
-.dwl-modal-close:hover{background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary)}
-.dwl-modal h3{margin:0 0 4px;font-size:18px;font-weight:700;color:var(--dsw-alias-label-primary)}
-.dwl-modal .dwl-modal-sub{font-size:12px;color:var(--dsw-alias-label-tertiary);margin-bottom:16px}
-.dwl-meta-section{margin-bottom:14px;padding:10px 12px;border-radius:10px;background:var(--dsw-alias-bg-layer-2)}
-.dwl-meta-section-hd{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px}
-.dwl-meta-section-hd .lbl{font-size:12px;font-weight:600;color:var(--dsw-alias-label-secondary);text-transform:uppercase;letter-spacing:.5px}
-.dwl-meta-section-hd .dwl-refresh-btn{background:none;border:none;cursor:pointer;padding:4px 6px;border-radius:5px;color:var(--dsw-alias-label-tertiary);display:inline-flex;align-items:center;min-width:28px;min-height:28px;justify-content:center;transition:color .12s,background .12s}
-.dwl-meta-section-hd .dwl-refresh-btn:hover:not(:disabled){color:var(--dsw-alias-brand-primary);background:var(--dsw-alias-bg-layer-2)}
-.dwl-meta-section-hd .dwl-refresh-btn:disabled{opacity:.55;cursor:default;filter:grayscale(.2)}
-.dwl-meta-section-hd .dwl-refresh-btn svg{width:14px;height:14px}
-.dwl-meta-section-hd .dwl-refresh-btn.loading svg{animation:dwl-spin .8s linear infinite}
-@keyframes dwl-spin{from{transform:rotate(0)}to{transform:rotate(360deg)}}
-@keyframes dwl-shimmer{0%{opacity:.45}50%{opacity:.85}100%{opacity:.45}}
-.dwl-meta-tags{display:flex;flex-wrap:wrap;gap:5px}
-.dwl-meta-tag{display:inline-block;font-size:12px;padding:3px 8px;border-radius:6px;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);border:1px solid var(--dsw-alias-border-l2)}
-.dwl-meta-root{display:flex;align-items:baseline;gap:4px;font-size:13px;margin-bottom:3px}
-.dwl-meta-root .part{font-weight:600;color:var(--dsw-alias-brand-primary)}
-.dwl-meta-root .type{font-size:10px;color:var(--dsw-alias-label-tertiary);padding:1px 4px;border-radius:3px;background:var(--dsw-alias-bg-layer-2)}
-.dwl-meta-root .meaning{color:var(--dsw-alias-label-secondary)}
-.dwl-meta-memo{font-size:13px;line-height:1.6;color:var(--dsw-alias-label-primary)}
-.dwl-meta-empty{font-size:12px;color:var(--dsw-alias-label-tertiary);font-style:italic}
-.dwl-modal-empty{text-align:center;padding:28px 16px;border-radius:10px;background:var(--dsw-alias-bg-layer-2)}
-.dwl-modal-empty .dwl-empty-icon{margin-bottom:8px;opacity:.5;color:var(--dsw-alias-label-tertiary);display:flex;justify-content:center}
-.dwl-modal-empty .dwl-empty-text{font-size:13px;color:var(--dsw-alias-label-tertiary);line-height:1.5}
-.dwl-modal-empty .dwl-empty-hint{font-size:12px;color:var(--dsw-alias-label-tertiary);margin-top:4px;opacity:.7}
-.dwl-modal-actions{display:flex;justify-content:center;gap:10px;margin-top:16px;padding-top:12px;border-top:1px solid var(--dwl-btn-border)}
-.dwl-modal-actions button{font:inherit;font-size:13px;font-weight:600;padding:8px 18px;border-radius:9px;cursor:pointer;border:1px solid var(--dwl-btn-border);background:var(--dwl-btn-bg);color:var(--dsw-alias-label-primary);transition:transform .1s,box-shadow .1s,background .12s}
-.dwl-modal-actions button:hover:not(:disabled){transform:translateY(-1px);box-shadow:var(--dwl-shadow);background:var(--dsw-alias-interactive-bg-hover)}
-.dwl-modal-actions button.primary{background:var(--dsw-alias-brand-primary);color:var(--dsw-alias-bg-base);border-color:transparent}
-.dwl-modal-actions button.primary:hover:not(:disabled){filter:brightness(1.12);transform:translateY(-1px);box-shadow:0 4px 12px rgba(0,0,0,.2)}
-.dwl-modal-actions button.primary:active:not(:disabled){filter:brightness(.92);transform:none}
-.dwl-modal-actions button:disabled{opacity:.65;cursor:default;transform:none;filter:grayscale(.2)}
-.dwl-ai-pill{display:inline-block;font-size:10.5px;font-weight:600;padding:2px 8px;border-radius:99px;background:var(--dsw-alias-brand-primary);color:var(--dsw-alias-bg-base);margin-left:8px;vertical-align:middle;letter-spacing:.3px}
-.dwl-modal-error{margin-top:10px;padding:8px 12px;border-radius:8px;font-size:12px;color:var(--dsw-alias-state-error-primary,#e53935);background:var(--dwl-error-bg);text-align:center;animation:dwl-fade .15s ease}
-.dwl-settings{padding:16px 0;display:flex;flex-direction:column;gap:20px}
-.dwl-settings-section{display:flex;flex-direction:column;gap:6px}
-.dwl-settings-section .hd{font-size:13px;font-weight:600;color:var(--dsw-alias-label-primary)}
-.dwl-settings-section .desc{font-size:12px;color:var(--dsw-alias-label-tertiary);line-height:1.5}
-.dwl-settings-row{display:flex;align-items:center;gap:10px;min-height:36px}
-.dwl-settings-row label{font-size:13px;color:var(--dsw-alias-label-secondary);flex:1}
-.dwl-settings-row select{font:inherit;font-size:13px;padding:4px 8px;border-radius:6px;border:1px solid var(--dwl-btn-border);background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);color-scheme:inherit}
-.dwl-settings-row input[type="checkbox"]{width:18px;height:18px;cursor:pointer;accent-color:var(--dsw-alias-brand-primary)}
-.dwl-settings-model{font-size:12px;padding:10px 14px;border-radius:8px;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-secondary);line-height:1.6;word-break:break-all}
-.dwl-settings-row select:disabled{opacity:.6;cursor:default}
-.dwl-settings-effect{display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:12px;color:var(--dsw-alias-label-secondary);line-height:1.6}
-.dwl-settings-link{font:inherit;font-size:12px;padding:0;border:0;background:transparent;color:var(--dsw-alias-brand-primary);cursor:pointer}
-.dwl-settings-link:hover:not(:disabled){text-decoration:underline}
-.dwl-settings-link:disabled{opacity:.6;cursor:default}
-.dwl-vrow{cursor:pointer}
-.dwl-vrow:hover{background:var(--dsw-alias-bg-layer-2)}
-
-/* ── R5 次日回访 ─────────────────────────────────────────────
-   为什么只用 --dsw-alias-* 令牌：回访卡和主学习卡长在同一个 .dwl-page 里，
-   写死颜色在深色主题下会变成刺眼白块（DESIGN.md 风险 13）。
-   两句英文用 --dwl-tint（作用域内的中性填充）而不是纯白，避免把注意力
-   从词义上拉走；对/错的边框用状态令牌，颜色本身就是反馈的一部分。 */
-.dwl-recap-q{margin-top:14px;font-size:13px;color:var(--dsw-alias-label-tertiary)}
-.dwl-recap-pair{width:100%;margin-top:14px;display:flex;flex-direction:column;gap:8px}
-.dwl-recap-sent{display:flex;gap:9px;text-align:left;padding:11px 13px;border-radius:10px;
-  background:var(--dwl-tint);font-size:14.5px;line-height:1.65;color:var(--dsw-alias-label-primary)}
-.dwl-recap-sent .idx{flex:none;font-size:12px;color:var(--dsw-alias-label-tertiary);
-  font-variant-numeric:tabular-nums;padding-top:2px}
-.dwl-recap-sent .txt{flex:1;min-width:0;word-break:break-word}
-.dwl-recap-choice{display:grid;grid-template-columns:1fr 1fr;gap:10px;width:100%;margin-top:16px}
-.dwl-recap-choice .dwl-pick-btn{display:inline-flex;align-items:center;justify-content:center;gap:8px}
-.dwl-recap-choice .k{font-size:10.5px;color:var(--dsw-alias-label-tertiary);
-  border:1px solid var(--dwl-btn-border);border-radius:4px;padding:0 4px;line-height:1.5}
-.dwl-recap-feedback{width:100%;margin-top:16px;padding:12px 15px;border-radius:10px;text-align:left;
-  border:1px solid var(--dwl-btn-border);background:var(--dwl-tint)}
-.dwl-recap-feedback[data-ok="1"]{border-color:var(--dsw-alias-state-success-primary)}
-.dwl-recap-feedback[data-ok="0"]{border-color:var(--dsw-alias-state-warn-primary)}
-.dwl-recap-feedback .hd{font-size:13px;font-weight:600;margin-bottom:6px}
-.dwl-recap-feedback[data-ok="1"] .hd{color:var(--dsw-alias-state-success-primary)}
-.dwl-recap-feedback[data-ok="0"] .hd{color:var(--dsw-alias-state-warn-primary)}
-.dwl-recap-feedback .row{display:flex;gap:8px;font-size:13.5px;line-height:1.6;margin-top:2px}
-.dwl-recap-feedback .row .k{flex:none;color:var(--dsw-alias-label-tertiary);font-size:12px;padding-top:2px}
-.dwl-recap-feedback .dwl-action-row{margin-top:12px}
-.dwl-recap-skip{margin-top:14px;font:inherit;font-size:11.5px;border:0;background:transparent;
-  color:var(--dsw-alias-label-tertiary);cursor:pointer;padding:6px 10px;border-radius:7px}
-.dwl-recap-skip:hover{color:var(--dsw-alias-label-primary);background:var(--dsw-alias-interactive-bg-hover)}
-
-/* 义项地图（词汇页详情面板）。
-   三个状态点用状态令牌而不是固定色：深色主题下要保证对比度由主题自己负责。 */
-.dwl-sense-legend{font-size:10.5px;color:var(--dsw-alias-label-tertiary)}
-.dwl-sense-map{display:flex;flex-direction:column;gap:6px}
-.dwl-sense-row{display:flex;align-items:center;gap:8px;font-size:13px;min-height:24px}
-.dwl-sense-row .gloss{flex:1;min-width:0;color:var(--dsw-alias-label-primary)}
-.dwl-sense-row .st{flex:none;font-size:11px;color:var(--dsw-alias-label-tertiary)}
-.dwl-sense-row[data-status="seen"] .dwl-dot{background:var(--dsw-alias-label-tertiary);opacity:.45}
-.dwl-sense-row[data-status="right"] .dwl-dot{background:var(--dsw-alias-state-success-primary)}
-.dwl-sense-row[data-status="wrong"] .dwl-dot{background:var(--dsw-alias-state-error-primary)}
-.dwl-sense-row[data-status="right"] .gloss{color:var(--dsw-alias-state-success-primary)}
-.dwl-sense-row[data-status="wrong"] .gloss{color:var(--dsw-alias-state-error-primary)}
-`
 
     // ---------------------------------------------------------------- 图标
 
@@ -1044,7 +288,7 @@ body[data-ds-dark-theme] .dwl-modal{background:var(--dsw-alias-bg-layer-1,#24242
       return h(
         'div',
         { className: 'dwl-branch', role: 'group', 'aria-label': '你记得这个词吗' },
-        BRANCHES.map((b) =>
+        (assetOf('BRANCHES') || []).map((b) =>
           h(
             'button',
             {
@@ -1085,21 +329,11 @@ body[data-ds-dark-theme] .dwl-modal{background:var(--dsw-alias-bg-layer-1,#24242
       const openTimer = useRef(null)
       const closeTimer = useRef(null)
 
-      /** 算固定坐标：卡片在词下方，放不下就翻到上方；左右夹在视口内。 */
+      /** 算固定坐标：几何在 dashboard-logic.js（hoverPlacement），这里只取视口尺寸。 */
       const place = useCallback(() => {
-        const el = anchorRef.current
-        const width = 300
         const vw = (typeof window !== 'undefined' && window.innerWidth) || 1200
         const vh = (typeof window !== 'undefined' && window.innerHeight) || 800
-        // 拿不到元素（还没挂载 / 测试环境）也要能显示，给个左上角兜底
-        if (!el || typeof el.getBoundingClientRect !== 'function') {
-          setPos({ left: 8, top: 8, width })
-          return
-        }
-        const r = el.getBoundingClientRect()
-        const left = Math.max(8, Math.min(r.left, vw - width - 8))
-        const below = vh - r.bottom > 200
-        setPos({ left, top: below ? r.bottom + 6 : Math.max(8, r.top - 196), width })
+        setPos(hoverPlacement(anchorRef.current, vw, vh))
       }, [])
 
       const load = useCallback(async () => {
@@ -1497,48 +731,6 @@ body[data-ds-dark-theme] .dwl-modal{background:var(--dsw-alias-bg-layer-1,#24242
 
     // ---------------------------------------------------------------- 写得出：看中文拼单词
 
-    /** 去掉大小写、空格和标点，只留字母。 */
-    function normalizeSpelling(s) {
-      return String(s || '')
-        .toLowerCase()
-        .replace(/[^a-z]/g, '')
-    }
-
-    /** 编辑距离（Levenshtein）。只用来容忍一两个字母的笔误。 */
-    function editDistance(a, b) {
-      if (Math.abs(a.length - b.length) > 2) return 99
-      let prev = []
-      for (let j = 0; j <= b.length; j++) prev.push(j)
-      for (let i = 1; i <= a.length; i++) {
-        const cur = [i]
-        for (let j = 1; j <= b.length; j++) {
-          cur.push(
-            Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1)),
-          )
-        }
-        prev = cur
-      }
-      return prev[b.length]
-    }
-
-    /**
-     * 比对拼写。返回 { state, distance }：
-     *   exact —— 完全一致
-     *   close —— 一两个字母的笔误（长词放宽到 2 个字符，且首字母必须对——
-     *            否则 "patent" / "latent" 这种"拼成另一个真词"会被算成对）
-     *   miss  —— 没写对
-     */
-    function spellCheck(input, word) {
-      const a = normalizeSpelling(input)
-      const b = normalizeSpelling(word)
-      if (!a || !b) return { state: 'miss', distance: 99 }
-      const d = editDistance(a, b)
-      if (d === 0) return { state: 'exact', distance: 0 }
-      const tolerance = b.length >= 8 ? 2 : 1
-      if (d <= tolerance && a[0] === b[0]) return { state: 'close', distance: d }
-      return { state: 'miss', distance: d }
-    }
-
     /**
      * WritePanel —— 产出型练习：给中文释义，把英文单词拼出来。
      *
@@ -1887,7 +1079,11 @@ body[data-ds-dark-theme] .dwl-modal{background:var(--dsw-alias-bg-layer-1,#24242
                       },
                       h('i', { className: 'dwl-dot', 'aria-hidden': true }),
                       h('span', { className: 'gloss' }, String(s.gloss || s.senseKey || '')),
-                      h('span', { className: 'st' }, SENSE_STATUS_LABEL[s.status] || ''),
+                      h(
+                        'span',
+                        { className: 'st' },
+                        (assetOf('SENSE_STATUS_LABEL') || {})[s.status] || '',
+                      ),
                     ),
                   ),
                 ),
@@ -2555,37 +1751,22 @@ body[data-ds-dark-theme] .dwl-modal{background:var(--dsw-alias-bg-layer-1,#24242
         onRate(2) // Hard
       }, [onRate])
 
-      /** 选择题结算。根据来路和得分决定 FSRS 评级。 */
+      /** 选择题结算：评级映射在 dashboard-logic.js（quizRating），这里只管延迟与回调。 */
       const handleQuizFinish = useCallback(
         (score) => {
           // 延迟一下让用户看到结果
           setTimeout(() => {
-            if (branch === 'fuzzy') {
-              // 模糊 + 选择题通过 → Good(3)
-              onRate(3)
-            } else if (branch === 'remember') {
-              // 记得分支：高分 → Easy(4)，中等 → Good(3)
-              if (score >= 0.8) {
-                onRate(4) // Easy
-              } else {
-                onRate(3) // Good
-              }
-            }
+            const rating = quizRating(branch, score)
+            if (rating) onRate(rating)
           }, 800)
         },
         [branch, onRate],
       )
 
-      /** 拼写结算：完全拼对 > 小笔误 > 没写对，再按来路映射到 1-4。 */
+      /** 拼写结算：评级映射在 dashboard-logic.js（writeRating）。 */
       const handleWriteFinish = useCallback(
         (res) => {
-          if (branch === 'fuzzy') {
-            onRate(res.state === 'miss' ? 2 : 3)
-            return
-          }
-          if (res.state === 'exact') onRate(4)
-          else if (res.state === 'close') onRate(3)
-          else onRate(1)
+          onRate(writeRating(branch, res.state))
         },
         [branch, onRate],
       )
@@ -3203,27 +2384,9 @@ body[data-ds-dark-theme] .dwl-modal{background:var(--dsw-alias-bg-layer-1,#24242
       const debouncedQuery = useDebouncedValue(query, 220)
       const keyword = debouncedQuery.trim().toLowerCase()
       // 服务器没有搜索参数，所以这里是**已加载集合**内的过滤，界面上照实说
-      const shown = useMemo(() => {
-        if (!keyword) return items
-        return items.filter(
-          (x) =>
-            String(x.word || '')
-              .toLowerCase()
-              .includes(keyword) ||
-            String(x.translation || '')
-              .toLowerCase()
-              .includes(keyword),
-        )
-      }, [items, keyword])
+      const shown = useMemo(() => assetOf('filterLoadedItems')(items, keyword), [items, keyword])
 
-      /**
-       * 档位缩写。
-       *
-       * 列表一行只有 ~340px，写「高频 3000」会把释义挤掉；这里压成 1k/3k/8k，
-       * 全称放在 title 里。未分级不显示 —— 空字符串比一个占位的「未分级」干净。
-       */
-      const TIER_BADGE = { top1k: '1k', top3k: '3k', top8k: '8k', rare: '低频' }
-      const tierLabelOf = (key) => (TIERS.find((x) => x.key === key) || {}).label || ''
+      // 档位缩写/全称在 dashboard-logic.js（tierBadgeOf / tierLabelOf）。
 
       return h(
         'div',
@@ -3244,7 +2407,7 @@ body[data-ds-dark-theme] .dwl-modal{background:var(--dsw-alias-bg-layer-1,#24242
         h(
           'div',
           { className: 'dwl-chips', role: 'group', 'aria-label': '按词频筛选' },
-          [{ key: '', label: '全部' }].concat(TIERS).map((t) =>
+          [{ key: '', label: '全部' }].concat(assetOf('TIERS') || []).map((t) =>
             h(
               'button',
               {
@@ -3316,7 +2479,7 @@ body[data-ds-dark-theme] .dwl-modal{background:var(--dsw-alias-bg-layer-1,#24242
                     h('span', { className: 'w' }, x.word),
                     x.phonetic ? h('span', { className: 'p' }, `/${x.phonetic}/`) : null,
                     h('span', { className: 't' }, (x.translation || '').split('\n')[0] || '—'),
-                    h('span', { className: 'm' }, TIER_BADGE[x.freqTier] || ''),
+                    h('span', { className: 'm' }, tierBadgeOf(x.freqTier)),
                   ),
               })
             : h(
@@ -3347,7 +2510,7 @@ body[data-ds-dark-theme] .dwl-modal{background:var(--dsw-alias-bg-layer-1,#24242
                     h('span', { className: 'w' }, x.word),
                     x.phonetic ? h('span', { className: 'p' }, `/${x.phonetic}/`) : null,
                     h('span', { className: 't' }, (x.translation || '').split('\n')[0] || '—'),
-                    h('span', { className: 'm' }, TIER_BADGE[x.freqTier] || ''),
+                    h('span', { className: 'm' }, tierBadgeOf(x.freqTier)),
                   ),
                 ),
               )
@@ -3413,26 +2576,9 @@ body[data-ds-dark-theme] .dwl-modal{background:var(--dsw-alias-bg-layer-1,#24242
     // ---------------------------------------------------------------- 数据视图
 
     function StatsView({ data }) {
-      const w = data.words || {}
-      const c = data.cards || {}
-      const q = data.queue || {}
-      const acc = data.accuracy || { dist: {}, total: 0, rate: 0 }
-      const started = c.started || 0
-
-      const tierParts = TIERS.map((t) => ({
-        label: t.label,
-        value: (w.byTier || []).find((x) => x.tier === t.key)?.n || 0,
-        color: t.color,
-      }))
-
-      const abMax = Math.max(1, ...Object.values(data.ability || {}).flatMap((b) => b || []))
-
-      const toneColor = {
-        again: 'var(--dsw-alias-state-error-primary)',
-        hard: 'var(--dsw-alias-state-warn-primary)',
-        good: 'var(--dsw-alias-state-success-primary)',
-        easy: 'var(--dsw-alias-state-business-primary)',
-      }
+      // KPI / 14 天曲线 / 能力画像 / 作答分布的取数与算术全在 dashboard-logic.js。
+      const { w, c, q, acc, started, tierParts, abMax, repair, dist } =
+        assetOf('statsViewModel')(data)
 
       return h(
         'div',
@@ -3466,53 +2612,31 @@ body[data-ds-dark-theme] .dwl-modal{background:var(--dsw-alias-bg-layer-1,#24242
           ),
         ),
 
-        data.repair
+        repair
           ? h(
               'div',
               { className: 'dwl-panel' },
               h('h3', null, '补记循环', h('span', null, '忘了之后的二次提取')),
-              h(
-                'div',
-                { className: 'dwl-kpis', role: 'group', 'aria-label': '补记效果' },
-                (() => {
-                  const stages = data.repair.stages || []
-                  const pick = stages.find((s) => s.stage === 'pick') || { n: 0, ok: 0 }
-                  const spell = stages.find((s) => s.stage === 'spell') || { n: 0, ok: 0 }
-                  const debt = data.repair.debt || { opened: 0, cleared: 0 }
-                  return [
-                    h(
-                      'div',
-                      { key: 'p', className: 'dwl-kpi' },
-                      h(
-                        'div',
-                        { className: 'n' },
-                        pick.n ? `${Math.round((pick.ok / pick.n) * 100)}%` : '—',
-                      ),
-                      h('div', { className: 'l' }, `义项首猜命中 / ${pick.n} 次`),
-                    ),
-                    h(
-                      'div',
-                      { key: 's', className: 'dwl-kpi' },
-                      h(
-                        'div',
-                        { className: 'n' },
-                        spell.n ? `${Math.round((spell.ok / spell.n) * 100)}%` : '—',
-                      ),
-                      h('div', { className: 'l' }, `拼写通过 / ${spell.n} 次`),
-                    ),
-                    h(
-                      'div',
-                      { key: 'd', className: 'dwl-kpi' },
-                      h(
-                        'div',
-                        { className: 'n' },
-                        debt.opened ? `${debt.cleared}/${debt.opened}` : '—',
-                      ),
-                      h('div', { className: 'l' }, '补记债已清'),
-                    ),
-                  ]
-                })(),
-              ),
+              h('div', { className: 'dwl-kpis', role: 'group', 'aria-label': '补记效果' }, [
+                h(
+                  'div',
+                  { key: 'p', className: 'dwl-kpi' },
+                  h('div', { className: 'n' }, repair.pickRate),
+                  h('div', { className: 'l' }, `义项首猜命中 / ${repair.pickN} 次`),
+                ),
+                h(
+                  'div',
+                  { key: 's', className: 'dwl-kpi' },
+                  h('div', { className: 'n' }, repair.spellRate),
+                  h('div', { className: 'l' }, `拼写通过 / ${repair.spellN} 次`),
+                ),
+                h(
+                  'div',
+                  { key: 'd', className: 'dwl-kpi' },
+                  h('div', { className: 'n' }, repair.debtText),
+                  h('div', { className: 'l' }, '补记债已清'),
+                ),
+              ]),
             )
           : null,
 
@@ -3552,7 +2676,7 @@ body[data-ds-dark-theme] .dwl-modal{background:var(--dsw-alias-bg-layer-1,#24242
           'div',
           { className: 'dwl-panel' },
           h('h3', null, '能力画像', h('span', null, '0–5 分，条长是词数')),
-          ABILITIES.map((a) =>
+          (assetOf('ABILITIES') || []).map((a) =>
             h(
               'div',
               { key: a.key, className: 'dwl-abrow', title: a.hint },
@@ -3564,12 +2688,7 @@ body[data-ds-dark-theme] .dwl-modal{background:var(--dsw-alias-bg-layer-1,#24242
               h(
                 'span',
                 { className: 'hi' },
-                (() => {
-                  const b = (data.ability || {})[a.key] || []
-                  const tot = b.reduce((s, n) => s + n, 0) || 1
-                  const avg = b.reduce((s, n, i) => s + n * i, 0) / tot
-                  return `均 ${avg.toFixed(1)}`
-                })(),
+                assetOf('abilityAverage')((data.ability || {})[a.key] || []),
               ),
             ),
           ),
@@ -3579,22 +2698,20 @@ body[data-ds-dark-theme] .dwl-modal{background:var(--dsw-alias-bg-layer-1,#24242
           'div',
           { className: 'dwl-panel' },
           h('h3', null, '作答分布', h('span', null, acc.total ? `共 ${acc.total} 次` : '暂无')),
-          acc.total
-            ? RATINGS.map((r) => {
-                const n = (acc.dist || {})[r.value] || 0
-                const pct = (n / acc.total) * 100
-                return h(
+          dist.length
+            ? dist.map((r) =>
+                h(
                   'div',
                   { key: r.value, className: 'dwl-dist' },
                   h('span', { className: 'nm' }, r.label),
                   h(
                     'span',
                     { className: 'bar' },
-                    h('i', { style: { width: `${pct}%`, background: toneColor[r.tone] } }),
+                    h('i', { style: { width: `${r.pct}%`, background: r.color } }),
                   ),
-                  h('span', { className: 'v' }, `${n} 次`),
-                )
-              })
+                  h('span', { className: 'v' }, `${r.n} 次`),
+                ),
+              )
             : h('div', { className: 'dwl-note' }, '还没有作答记录'),
         ),
 
@@ -3633,7 +2750,7 @@ body[data-ds-dark-theme] .dwl-modal{background:var(--dsw-alias-bg-layer-1,#24242
                     { key: i, className: 'dwl-row' },
                     h('span', { className: 'w' }, x.word),
                     h('span', { className: 't' }, (x.translation || '').split('\n')[0]),
-                    h('span', { className: 'm' }, relTime(x.seen_at)),
+                    h('span', { className: 'm' }, assetOf('relTime')(x.seen_at)),
                   ),
                 ),
               )
@@ -3699,32 +2816,15 @@ body[data-ds-dark-theme] .dwl-modal{background:var(--dsw-alias-bg-layer-1,#24242
       const handleAutoSpeak = useCallback((e) => {
         const on = !!e.target.checked
         setAutoSpeakState(on)
-        saveAutoSpeak(on)
+        assetOf('saveAutoSpeak')(on)
       }, [])
 
-      const models = (catalog && catalog.models) || []
-      const selection = (catalog && catalog.selection) || null
-      // select 的 value 用下标而不是 "provider/model"：模型 id 里可能带斜杠，
-      // 拼字符串再拆会在那种模型上选错。
-      const currentIndex = selection
-        ? models.findIndex((m) => m.provider === selection.provider && m.id === selection.model)
-        : -1
-
-      // 按 provider 分组：同一家的模型放进一个 optgroup，看得清来源
-      const groups = useMemo(() => {
-        const out = []
-        const byProvider = new Map()
-        models.forEach((m, i) => {
-          let g = byProvider.get(m.provider)
-          if (!g) {
-            g = { id: m.provider, name: m.providerName || m.provider, items: [] }
-            byProvider.set(m.provider, g)
-            out.push(g)
-          }
-          g.items.push({ index: i, model: m })
-        })
-        return out
-      }, [models])
+      // 下拉取数（选中下标 / 按 provider 分组）在 dashboard-logic.js；select 的 value
+      // 用下标而不是 "provider/model"：模型 id 里可能带斜杠，拼字符串再拆会选错。
+      const { models, selection, currentIndex, groups } = useMemo(
+        () => assetOf('modelCatalogView')(catalog),
+        [catalog],
+      )
 
       const chooseModel = useCallback(
         async (e) => {
@@ -3840,10 +2940,7 @@ body[data-ds-dark-theme] .dwl-modal{background:var(--dsw-alias-bg-layer-1,#24242
                 ? h(
                     'div',
                     { className: 'dwl-settings-effect' },
-                    'DSH 里还没有可用的文本模型，' +
-                      (selection && selection.model
-                        ? '暂时跟随会话默认模型（' + (selection.name || selection.model) + '）。'
-                        : '请先在 DSH 设置里配置模型提供方。'),
+                    assetOf('catalogEmptyHint')(selection),
                   )
                 : h(
                     'div',
@@ -3880,17 +2977,7 @@ body[data-ds-dark-theme] .dwl-modal{background:var(--dsw-alias-bg-layer-1,#24242
                     h(
                       'div',
                       { className: 'dwl-settings-effect' },
-                      h(
-                        'span',
-                        null,
-                        '当前生效：' +
-                          (selection
-                            ? (selection.providerName || selection.provider) +
-                              ' · ' +
-                              (selection.name || selection.model) +
-                              (selection.source === 'custom' ? '' : '（默认：列表第一个）')
-                            : '无'),
-                      ),
+                      h('span', null, '当前生效：' + assetOf('selectionText')(selection)),
                       selection && selection.source === 'custom'
                         ? h(
                             'button',
@@ -3932,7 +3019,17 @@ body[data-ds-dark-theme] .dwl-modal{background:var(--dsw-alias-bg-layer-1,#24242
       )
     }
 
+    // 入口先守就绪：注入脚本没到之前只渲染加载态，绝不带着 undefined 的逻辑去渲染
+    // （那会崩掉宿主槽位，2026-11-05 普通刷新事故）。就绪后挂载真正的页面。
     function WordLearnPage() {
+      const [ready, setReady] = useState(assetsReady)
+      useEffect(() => (ready ? undefined : whenAssetsReady(() => setReady(true))), [ready])
+      return ready
+        ? h(ReadyPage, null)
+        : h('div', { className: 'dwl-page' }, h('div', { className: 'dwl-mid' }, '正在加载…'))
+    }
+
+    function ReadyPage() {
       const [view, setView] = useState(readView)
       const [data, setData] = useState(null)
       const [queue, setQueue] = useState(null)
@@ -3980,7 +3077,7 @@ body[data-ds-dark-theme] .dwl-modal{background:var(--dsw-alias-bg-layer-1,#24242
         try {
           // R5 昨日回访：拿不到就当今天没有回访，主队列照常 ——
           // 绝不能因为回访接口挂了让学习页白屏。
-          const wantRecap = !recapLoaded.current && !recapSkippedToday()
+          const wantRecap = !recapLoaded.current && !assetOf('recapSkippedToday')()
           const [dash, q, rs, rc] = await Promise.all([
             api('/dashboard?days=14'),
             api('/queue?limit=500'),
@@ -4009,7 +3106,7 @@ body[data-ds-dark-theme] .dwl-modal{background:var(--dsw-alias-bg-layer-1,#24242
           // 开始一轮先预热音色列表（不阻塞 UI，失败静默）：
           // speechSynthesis 第一次 getVoices() 常是空数组，预热后点喇叭即时出声。
           try {
-            const voice = voiceModule()
+            const voice = assetOf('voiceModule')()
             if (voice && typeof voice.preload === 'function') {
               Promise.resolve(voice.preload()).catch(() => {})
             }
@@ -4039,14 +3136,14 @@ body[data-ds-dark-theme] .dwl-modal{background:var(--dsw-alias-bg-layer-1,#24242
           // 重复写 repair_log。没答的题服务端仍会留着，刷新后还能接着回访。
           if (recapActive) setRecapDone(true)
           setView(next)
-          saveView(next)
+          assetOf('saveView')(next)
         },
         [recapActive],
       )
 
       /** 跳过回访：不扣任何东西（不清债、不写库），只记「今天不再问」。 */
       const skipRecap = useCallback(() => {
-        markRecapSkipped()
+        assetOf('markRecapSkipped')()
         setRecapDone(true)
       }, [])
 
@@ -4105,7 +3202,7 @@ body[data-ds-dark-theme] .dwl-modal{background:var(--dsw-alias-bg-layer-1,#24242
         playWord(item.word, accent)
           .catch((err) => {
             // 重新点一次会打断上一条（ABORTED），那不是失败，别弹提示
-            if (alive.current && !isAbort(err)) setToast(voiceErrorText(err))
+            if (alive.current && !assetOf('isAbort')(err)) setToast(assetOf('voiceErrorText')(err))
           })
           .finally(() => {
             if (alive.current) setSpeaking(false)
@@ -4159,7 +3256,7 @@ body[data-ds-dark-theme] .dwl-modal{background:var(--dsw-alias-bg-layer-1,#24242
         h(
           'div',
           { className: 'dwl-tabs', role: 'tablist', 'aria-label': '学习页视图' },
-          TABS.map((t) =>
+          (assetOf('TABS') || []).map((t) =>
             h(
               'button',
               {
@@ -4340,7 +3437,7 @@ body[data-ds-dark-theme] .dwl-modal{background:var(--dsw-alias-bg-layer-1,#24242
                     'span',
                     null,
                     cursor < total
-                      ? `还剩 ${total - cursor} 个 · ${estimateMinutes(total - cursor)}`
+                      ? `还剩 ${total - cursor} 个 · ${assetOf('estimateMinutes')(total - cursor)}`
                       : '全部完成',
                   ),
                 ),
@@ -4411,9 +3508,11 @@ body[data-ds-dark-theme] .dwl-modal{background:var(--dsw-alias-bg-layer-1,#24242
       ctx.effect(() => {
         const tag = document.createElement('style')
         tag.dataset.plugin = 'dsh-word-learn'
-        tag.textContent = CSS
         document.head.appendChild(tag)
+        // 普通刷新时注入脚本可能还没到：先挂空样式，就绪后补齐（事件 + 轮询兜底）。
+        const stop = whenAssetsReady(() => (tag.textContent = window.__dwlDashboardCSS || ''))
         return () => {
+          stop()
           try {
             tag.remove()
           } catch (err) {}
@@ -4428,6 +3527,9 @@ body[data-ds-dark-theme] .dwl-modal{background:var(--dsw-alias-bg-layer-1,#24242
       HoverWord,
       WritePanel,
       SettingsView,
+      StatsView,
+      VocabView,
+      WordLearnPage,
       normalizeSpelling,
       editDistance,
       spellCheck,

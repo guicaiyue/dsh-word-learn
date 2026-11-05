@@ -717,6 +717,27 @@ if (gItem) {
   console.log('  （队列为空，跳过评分收尾断言）')
 }
 
+// ─────────────────────────────────────────────────────────────
+// 划词卡拆分：新增两个注入脚本的 HTTP 契约（顺序/async 契约在 test-scope 静态守）
+// ─────────────────────────────────────────────────────────────
+console.log('\n=== 划词卡拆分：新增注入脚本 ===')
+for (const [pathname, marker] of [
+  ['/dsh-word-learn/wordcard-style.js', 'window.__dwlWordcardStyle'],
+  ['/dsh-word-learn/wordcard-card.js', 'window.__dwlWordcardCard'],
+]) {
+  r = await call(pathname)
+  const body = typeof r.json === 'string' ? r.json : String(r.json)
+  checkEq(pathname + ' HTTP', r.code, 200)
+  checkEq(pathname + ' no-store', r.headers['Cache-Control'], 'no-store')
+  check(
+    pathname + ' content-type + window 全局',
+    /application\/javascript/.test(String(r.headers['Content-Type'] || '')) &&
+      body.includes(marker),
+  )
+}
+r = await call('/dsh-word-learn/client.js')
+check('wordcard.js 从 __dwlWordcardCard 取视图', String(r.json).includes('__dwlWordcardCard'))
+
 console.log('\n=== task-6 断言汇总 ===')
 const totalChecks = passed + failures.length
 if (failures.length) {
