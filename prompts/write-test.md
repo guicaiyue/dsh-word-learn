@@ -19,7 +19,7 @@
 | ----------------------------- | ---------------------- | -------------------------------------------------------------- |
 | `scripts/test-routes.mjs`     | 1–25                   | 临时 `DSH_HOME` 的标准写法（含"为什么不能用真实库"）           |
 | `scripts/test-scope.mjs`      | 1–32                   | vm 整文件加载 `assets/core.js`，从 `__dwlCore` 取函数          |
-| `tests/helpers/dashboard.mjs` | 1–60                   | vm 整文件加载 `assets/dashboard.js`，从 `__test__` 取组件      |
+| `tests/helpers/dashboard.mjs` | 1–60                   | vm 整文件加载 dashboard.js + logic/style，从 `__test__` 取组件 |
 | `scripts/test-schedule.mjs`   | 全文（137 行）         | 断言式单测的范例：间隔序列逐条比                               |
 | 被测模块                      | 文件头 1–40 + 导出清单 | 先知道它的输入输出与已知坑                                     |
 | `CONVENTIONS.md`              | §9 测试                | 三个入口、硬规则、何时必须有测试                               |
@@ -47,7 +47,7 @@
 - **禁止真实用户库**：任何会写库的路径都必须临时 `DSH_HOME`；`--allow-real-db` 类开关默认关闭。
 - **禁止真实网络**：不许打真实翻译/LLM/TTS/例句接口，也不许把网络失败当断言通过条件。
 - **不许复制被测逻辑**到测试里（尤其前端作用范围/标注判定）：整文件 vm 加载真实源码
-  （`core.js` / `dashboard.js`），不要再按函数名切字符串。
+  （`core.js` / `dashboard.js` / `dashboard-logic.js` / `dashboard-style.js`），不要再按函数名切字符串。
 - 不许用 `setTimeout` 等固定时间当同步手段（用轮询条件或注入 now/时钟）。
 - 不许为了让测试过而改产品代码的语义；发现产品代码有问题就回到 bug/重构流程。
 - 测试脚本也吃 `max-lines` 预算（默认 400）；超了拆成两个脚本，别调预算。
@@ -57,7 +57,7 @@
 
 ```bash
 node scripts/test-<新脚本>.mjs   # legacy：必须能单跑
-pnpm test:unit                   # tests/unit 下的单测
+pnpm test:unit                   # tests/unit 下的单测（现 11 个文件、110 条）
 pnpm test:legacy                 # 确认已注册进 test-all
 pnpm check:cycles                # 新增/移动文件后先看 import 环
 pnpm verify                      # 唯一验收

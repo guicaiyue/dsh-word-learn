@@ -5,29 +5,38 @@
 要改页面上看得见的东西：{{目标，例如"划词卡片加一个'再听一遍'按钮"}}。
 先判断改哪一半，选错文件会白改：
 
-| 要改的东西                            | 文件                  | 生效方式                                                      |
-| ------------------------------------- | --------------------- | ------------------------------------------------------------- |
-| 划词卡片、选区判定、浮层样式          | `assets/wordcard.js`  | 硬刷新页面（按 mtime 重读）                                   |
-| 划词纯判定（生效/排除范围、语音降级） | `assets/core.js`      | 硬刷新页面（mtime 重读）                                      |
-| 学习页四个视图、侧栏入口、客户端文案  | `assets/dashboard.js` | **重新激活插件**（改 `cordis.patch.yml` 触发 HMR 或重启宿主） |
-| 对话内联标注、悬停小卡                | `assets/annotate.js`  | 硬刷新页面（no-store）                                        |
+| 要改的东西                           | 文件                        | 生效方式                                                      |
+| ------------------------------------ | --------------------------- | ------------------------------------------------------------- |
+| 划词卡片装配、请求、状态机           | `assets/wordcard.js`        | 硬刷新页面（按 mtime 重读）                                   |
+| 划词卡片视图（DOM/渲染/定位）        | `assets/wordcard-card.js`   | 硬刷新页面（同上）                                            |
+| 划词卡片样式（CSS 字符串）           | `assets/wordcard-style.js`  | 硬刷新页面（同上）                                            |
+| 划词纯判定 + 排除范围唯一来源        | `assets/core.js`            | 硬刷新页面（mtime 重读）                                      |
+| 学习页纯逻辑/常量（无 React）        | `assets/dashboard-logic.js` | 硬刷新页面（同上；就绪前页面显示「正在加载」）                |
+| 学习页样式（CSS 模板串）             | `assets/dashboard-style.js` | 硬刷新页面（同上）                                            |
+| 学习页四个视图、侧栏入口、客户端文案 | `assets/dashboard.js`       | **重新激活插件**（改 `cordis.patch.yml` 触发 HMR 或重启宿主） |
+| 对话内联标注、悬停小卡               | `assets/annotate.js`        | 硬刷新页面（no-store）                                        |
 
 ## 先读什么（别跳）
 
-| 文件                  | 行区                                                       | 为什么                                               |
-| --------------------- | ---------------------------------------------------------- | ---------------------------------------------------- |
-| 目标文件头注释        | 1–45                                                       | 四个页面侧脚本各自写了它为什么是这个形态             |
-| `assets/wordcard.js`  | 21–47 取用 `window.__dwlCore` + `API` 常量表               | 判定逻辑已搬到 core.js，这里只消费                   |
-| `assets/core.js`      | 33–50 `SCOPE_SELECTOR`/`EXCLUDED_SELECTOR`；132–144 导出面 | 划词生效范围/排除范围的唯一实现；改它必跑 test-scope |
-| `assets/annotate.js`  | 24–60 `CONFIG`                                             | 排除规则、流式保护、限额都集中在这里                 |
-| `assets/dashboard.js` | 78–114 NS/API/TABS；4362–4436 `DICT` 与 `__test__`         | 侧栏 id 必须与面板 key 一致；locale 必须先注册       |
-| `DESIGN.md`           | §9 风险 13（主题令牌）·680–710                             | 颜色只能从这张表取，别凭感觉填                       |
-| `CONVENTIONS.md`      | §2.2 主题令牌、§7 前端约定                                 | `dwl-` 前缀、aria、不碰页面 DOM                      |
+| 文件                        | 行区                                                       | 为什么                                             |
+| --------------------------- | ---------------------------------------------------------- | -------------------------------------------------- |
+| 目标文件头注释              | 1–45                                                       | 八个注入脚本各自写了它为什么是这个形态             |
+| `assets/wordcard.js`        | 22–38 取 `window.__dwlCore`/`__dwlWordcardCard` + `API` 表 | 只做装配/请求/状态机，别在这里写判定或 DOM 构建    |
+| `assets/wordcard-card.js`   | 11–30 无状态契约；`mount/render/place` 签名；464 导出      | 视图模块不注册事件、不持有状态；DOM 句柄调用方传入 |
+| `assets/wordcard-style.js`  | 6–15 CSS 导出契约                                          | 只挂 `window.__dwlWordcardStyle` 字符串            |
+| `assets/core.js`            | 45–80 `BLOCKED_ELEMENTS`/`blockedSelector`；164–176 导出面 | 排除范围唯一来源；改它必跑 test-scope              |
+| `assets/annotate.js`        | 25–35 取 core、拿不到就跳过；`CONFIG` 在 31 起             | 标注只列本层特有排除项，别抄 core 的名单           |
+| `assets/dashboard.js`       | 82–129 `assetOf`/`whenAssetsReady`；3526–3538 `__test__`   | 禁止模块期快照全局；侧栏 id 必须与面板 key 一致    |
+| `assets/dashboard-logic.js` | 528–572 导出面；571 发 `dwl:assets-ready`                  | 纯逻辑/常量，无 React、不监听、不写样式            |
+| `assets/dashboard-style.js` | 533–535 挂 CSS + 发就绪事件                                | 只导出字符串，别在这里写 DOM 逻辑                  |
+| `DESIGN.md`                 | §9 风险 13（主题令牌）·680–710                             | 颜色只能从这张表取，别凭感觉填                     |
+| `CONVENTIONS.md`            | §2.2 主题令牌、§7 前端约定                                 | `dwl-` 前缀、aria、不碰页面 DOM                    |
 
 ## 步骤
 
 1. **确认作用范围没变**：划词只认 `[data-chat-flow]`；标注只在该根内动，
-   排除代码块/行内代码/文件名/URL/链接/流式内容/折叠内容/其它插件弹窗。改判定要同步跑测试。
+   排除代码块/行内代码/文件名/URL/链接/流式内容/折叠内容/其它插件弹窗。
+   排除项名单只在 `assets/core.js` 的 `BLOCKED_ELEMENTS` 维护，标注层只列自己特有的项。改判定要同步跑测试。
 2. **改 UI 结构**：类名一律 `dwl-` 前缀，选择器限定在自己的根节点下；不写全局选择器、
    不用 `!important` 盖宿主样式。可点元素用 `<button type="button">`，图标按钮给 `aria-label`，
    动态区域给 `aria-live="polite"`。
@@ -45,7 +54,11 @@
 - 不许写死颜色、不许判 `data-theme="dark"`、不许猜令牌值。
 - 不许引入构建步骤、不加 npm 前端依赖（React 是加载器给的）。
 - 不许碰其它插件的节点与弹窗；标注遇到就跳过。
-- `dashboard.js` 预算是 3900 代码行（现 3728），新加功能优先抽组件/抽函数，别继续往单文件堆。
+- 拆分后的预算：`dashboard.js` 3000（现 2990）、`dashboard-style.js` 509（现 500）、
+  `dashboard-logic.js` 默认 400（现 398）；`wordcard.js` 540（现 520）、`wordcard-card.js` 380、
+  `wordcard-style.js` 141。新功能优先抽组件/抽函数，别把大文件再堆起来。
+- 不许在模块工厂 / `apply()` 期快照 `window.__dwl*`：用 `assetOf()` 使用时读、`whenAssetsReady`
+  等 `dwl:assets-ready` 后再渲染，未就绪渲染「正在加载」而不是崩页。
 - 前端脚本的任何异常必须吞掉（带注释说明），划词/标注坏了不能拖垮页面。
 
 ## 必须执行的验证
@@ -71,7 +84,7 @@ pnpm verify
 ```text
 目标：{{用户看到的变化}}
 
-改了哪一半：{{wordcard / dashboard / annotate}}，为什么是它
+改了哪一半：{{wordcard / wordcard-card / wordcard-style / core / dashboard / dashboard-logic / dashboard-style / annotate}}，为什么是它
 
 改动：
 - {{文件}}:{{行区}} —— {{结构/样式/请求}}

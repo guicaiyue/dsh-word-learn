@@ -39,7 +39,8 @@
 - 不许碰 `data/`、真实 `$DSH_HOME/dsh-word-learn/user.db`；写库测试必须临时 `DSH_HOME`。
 - 不许加 `eslint-disable`；不许调大 `CODE_BUDGET`。
 - 不许改 `DESIGN.md` 的历史结论；不许引入新依赖；不许加构建步骤。
-- 修前端还要说明生效方式：`wordcard`/`annotate` 硬刷新，`dashboard` 要重新激活插件。
+- 修前端还要说明生效方式：注入脚本（core / voice / wordcard 三段 / dashboard-logic / dashboard-style / annotate）
+  硬刷新；`dashboard.js` 是 client 产物，要重新激活插件。
 
 ## 必须执行的验证
 

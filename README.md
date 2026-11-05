@@ -114,34 +114,38 @@ python scripts\build_dict.py
 
 ## 接口
 
-| 方法     | 路径                             | 说明                                                             |
-| -------- | -------------------------------- | ---------------------------------------------------------------- |
-| GET      | `/dsh-word-learn/client.js`      | 前端脚本（按 mtime 热重载）                                      |
-| GET      | `/dsh-word-learn/core.js`        | 划词纯判定核心（`window.__dwlCore`，按 mtime 热重载）            |
-| GET      | `/dsh-word-learn/voice.js`       | 前端语音模块（speechSynthesis，零网络；按 mtime 热重载）         |
-| GET      | `/dsh-word-learn/annotate.js`    | 对话内联标注脚本（按 mtime 热重载）                              |
-| GET/POST | `/dsh-word-learn/lookup`         | 查词（`word`, `sentence`, `enrich`）                             |
-| GET/POST | `/dsh-word-learn/translate`      | 整句翻译（`text`），永远回 200 + `ok`                            |
-| POST     | `/dsh-word-learn/save`           | 拆词（`text`）                                                   |
-| GET      | `/dsh-word-learn/list`           | 生词本（`limit`, `offset`, `tier`, `starred`, `order`）          |
-| POST     | `/dsh-word-learn/update`         | 改画像/收藏/笔记                                                 |
-| POST     | `/dsh-word-learn/remove`         | 移除                                                             |
-| GET      | `/dsh-word-learn/dashboard`      | 学习页全部聚合数据（`days`）                                     |
-| GET      | `/dsh-word-learn/queue`          | 今日到期队列（`limit`, `track`）                                 |
-| POST     | `/dsh-word-learn/grade`          | 提交评分（`cardId`, `rating` 1-4）                               |
-| GET      | `/dsh-word-learn/word`           | 单词详情 + 两条线状态（`word`）                                  |
-| GET      | `/dsh-word-learn/models`         | AI 分析可用的文本模型（复用 DSH 模型目录）+ 当前选择             |
-| POST     | `/dsh-word-learn/model`          | 选 AI 分析模型（`provider`,`model`；或 `reset:true` 回到第一个） |
-| GET      | `/dsh-word-learn/model-info`     | AI 分析当前实际用的模型 + 来源（兼容旧接口）                     |
-| POST     | `/dsh-word-learn/enrich-ai`      | 手动触发/补 AI 分析（`word`, `force`, `field`）                  |
-| GET      | `/dsh-word-learn/quiz`           | 生成选择题（`word`）                                             |
-| GET      | `/dsh-word-learn/repair`         | 补记卡材料（`cardId`）                                           |
-| POST     | `/dsh-word-learn/repair/log`     | 记一条补记尝试（`cardId`, `stage`, `ok`, `guess`, `elapsedMs`）  |
-| POST     | `/dsh-word-learn/repair/clear`   | 清补记债（`wordId` 或 `cardId`）                                 |
-| GET      | `/dsh-word-learn/repair/stats`   | 补记统计（`days` 1–90，默认 14）                                 |
-| GET/POST | `/dsh-word-learn/repair/recap`   | 次日回访：GET 取题（`limit` ≤10），POST 提交（`wordId` 等）      |
-| GET      | `/dsh-word-learn/sense-map`      | 义项地图（`word`）                                               |
-| GET      | `/dsh-word-learn/annotate/words` | 标注目标词表（`limit` 默认 2000，1–5000）                        |
+| 方法     | 路径                                 | 说明                                                             |
+| -------- | ------------------------------------ | ---------------------------------------------------------------- |
+| GET      | `/dsh-word-learn/client.js`          | 划词卡片主脚本（实际返回 `wordcard.js`；按 mtime 热重载）        |
+| GET      | `/dsh-word-learn/core.js`            | 划词纯判定 + 排除范围唯一来源（`window.__dwlCore`，热重载）      |
+| GET      | `/dsh-word-learn/wordcard-style.js`  | 划词卡样式（`window.__dwlWordcardStyle`，CSS 字符串）            |
+| GET      | `/dsh-word-learn/wordcard-card.js`   | 划词卡视图（`window.__dwlWordcardCard`）                         |
+| GET      | `/dsh-word-learn/voice.js`           | 前端语音模块（speechSynthesis，零网络；按 mtime 热重载）         |
+| GET      | `/dsh-word-learn/dashboard-logic.js` | 学习页纯逻辑（`window.__dwlDashboardLogic`）                     |
+| GET      | `/dsh-word-learn/dashboard-style.js` | 学习页样式（`window.__dwlDashboardCSS`，CSS 模板串）             |
+| GET      | `/dsh-word-learn/annotate.js`        | 对话内联标注脚本（按 mtime 热重载）                              |
+| GET/POST | `/dsh-word-learn/lookup`             | 查词（`word`, `sentence`, `enrich`）                             |
+| GET/POST | `/dsh-word-learn/translate`          | 整句翻译（`text`），永远回 200 + `ok`                            |
+| POST     | `/dsh-word-learn/save`               | 拆词（`text`）                                                   |
+| GET      | `/dsh-word-learn/list`               | 生词本（`limit`, `offset`, `tier`, `starred`, `order`）          |
+| POST     | `/dsh-word-learn/update`             | 改画像/收藏/笔记                                                 |
+| POST     | `/dsh-word-learn/remove`             | 移除                                                             |
+| GET      | `/dsh-word-learn/dashboard`          | 学习页全部聚合数据（`days`）                                     |
+| GET      | `/dsh-word-learn/queue`              | 今日到期队列（`limit`, `track`）                                 |
+| POST     | `/dsh-word-learn/grade`              | 提交评分（`cardId`, `rating` 1-4）                               |
+| GET      | `/dsh-word-learn/word`               | 单词详情 + 两条线状态（`word`）                                  |
+| GET      | `/dsh-word-learn/models`             | AI 分析可用的文本模型（复用 DSH 模型目录）+ 当前选择             |
+| POST     | `/dsh-word-learn/model`              | 选 AI 分析模型（`provider`,`model`；或 `reset:true` 回到第一个） |
+| GET      | `/dsh-word-learn/model-info`         | AI 分析当前实际用的模型 + 来源（兼容旧接口）                     |
+| POST     | `/dsh-word-learn/enrich-ai`          | 手动触发/补 AI 分析（`word`, `force`, `field`）                  |
+| GET      | `/dsh-word-learn/quiz`               | 生成选择题（`word`）                                             |
+| GET      | `/dsh-word-learn/repair`             | 补记卡材料（`cardId`）                                           |
+| POST     | `/dsh-word-learn/repair/log`         | 记一条补记尝试（`cardId`, `stage`, `ok`, `guess`, `elapsedMs`）  |
+| POST     | `/dsh-word-learn/repair/clear`       | 清补记债（`wordId` 或 `cardId`）                                 |
+| GET      | `/dsh-word-learn/repair/stats`       | 补记统计（`days` 1–90，默认 14）                                 |
+| GET/POST | `/dsh-word-learn/repair/recap`       | 次日回访：GET 取题（`limit` ≤10），POST 提交（`wordId` 等）      |
+| GET      | `/dsh-word-learn/sense-map`          | 义项地图（`word`）                                               |
+| GET      | `/dsh-word-learn/annotate/words`     | 标注目标词表（`limit` 默认 2000，1–5000）                        |
 
 ## 开发
 
@@ -198,18 +202,24 @@ node scripts\test-settings-ui.mjs
 
 **改哪一半、要不要重启**：
 
-| 改什么                               | 怎么生效                                                                                                              |
-| ------------------------------------ | --------------------------------------------------------------------------------------------------------------------- |
-| `assets/core.js`（划词纯判定）       | 硬刷新页面即可（按 mtime 热重载；wordcard 从 `window.__dwlCore` 取判定）                                              |
-| `assets/wordcard.js`（划词卡片）     | 硬刷新页面即可（按 mtime 热重载）                                                                                     |
-| `assets/annotate.js`（对话内联标注） | 硬刷新页面即可（按 mtime 热重载，no-store）                                                                           |
-| `assets/voice.js`（语音合成）        | 硬刷新页面即可（同上）                                                                                                |
-| `assets/dashboard.js`（学习页）      | **要重新激活插件**：宿主在激活时把 client 半边读成快照，单刷新页面不够；改一下 `cordis.patch.yml` 触发 HMR 或重启宿主 |
-| `lib/**/*.mjs`（宿主侧）             | **重挂插件**即可，不必重启宿主（见下）                                                                                |
+| 改什么                                                   | 怎么生效                                                                                                              |
+| -------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `assets/core.js`（划词纯判定/排除范围）                  | 硬刷新页面即可（按 mtime 热重载；wordcard 从 `window.__dwlCore` 取判定）                                              |
+| `assets/voice.js`（语音合成）                            | 硬刷新页面即可（同上）                                                                                                |
+| `assets/wordcard-style.js`（划词卡样式）                 | 硬刷新页面即可（同上）                                                                                                |
+| `assets/wordcard-card.js`（划词卡视图）                  | 硬刷新页面即可（同上）                                                                                                |
+| `assets/wordcard.js`（划词卡装配，经 `/client.js` 提供） | 硬刷新页面即可（同上）                                                                                                |
+| `assets/dashboard-logic.js`（学习页纯逻辑）              | 硬刷新页面即可（同上；dashboard.js 就绪前显示「正在加载」）                                                           |
+| `assets/dashboard-style.js`（学习页样式）                | 硬刷新页面即可（同上）                                                                                                |
+| `assets/annotate.js`（对话内联标注）                     | 硬刷新页面即可（按 mtime 热重载，no-store）                                                                           |
+| `assets/dashboard.js`（学习页 client 产物）              | **要重新激活插件**：宿主在激活时把 client 半边读成快照，单刷新页面不够；改一下 `cordis.patch.yml` 触发 HMR 或重启宿主 |
+| `lib/**/*.mjs`（宿主侧）                                 | **重挂插件**即可，不必重启宿主（见下）                                                                                |
 
-注入顺序固定：`core.js` → `voice.js` → `client.js` → `annotate.js`。`core.js` 必须最先——
-`wordcard.js` 的判定（生效范围、排除范围、语音降级）全部从 `window.__dwlCore` 取，取不到就静默
-不装卡片（页面其它功能不受影响，硬刷新拿到新注入行即恢复）。
+注入顺序固定（`lib/index.js` 的 `SCRIPT_PATHS`，loader 显式 `async=false` 保证按插入顺序执行）：
+`core.js` → `voice.js` → `wordcard-style.js` → `wordcard-card.js` → `dashboard-logic.js` →
+`dashboard-style.js` → `client.js`（返回 `wordcard.js`）→ `annotate.js`。依赖全是 `window.__dwl*`
+全局，各段都带守卫、缺依赖就静默降级。`dashboard.js` 不在模块工厂期快照这些全局（client 可能先跑），
+而是用 `assetOf()` 使用时读 + `whenAssetsReady` 等 `dwl:assets-ready`，就绪前显示「正在加载」。
 
 **改生效范围之后怎么验**：`node scripts/test-scope.mjs` 用 `vm` 整文件加载 `assets/core.js`（浏览器
 IIFE，提供最小 `window` 桩），从 `window.__dwlCore` 取**真实函数**求值（不是复制一份逻辑），覆盖

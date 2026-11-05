@@ -20,36 +20,40 @@
 零构建 ESM 插件：宿主直接 `import` `lib/index.js`，页面直接 `<script>` 加载 `assets/*.js`。
 没有打包、没有转译、没有 `dist/`。Node >= 22.5，包管理器 pnpm，运行时依赖只有 `ts-fsrs`。
 
-| 路径                               | 跑在哪                        | 能做什么                                                  | 禁止什么                                         |
-| ---------------------------------- | ----------------------------- | --------------------------------------------------------- | ------------------------------------------------ |
-| `lib/index.js`                     | 宿主（Node ESM）              | 注入行、信任栅栏、registerRoute 包装、挂载/卸载           | 写业务算法；写 handler；拼 SQL；import `assets/` |
-| `lib/routes/*.mjs`                 | 宿主（Node ESM）              | 26 条路由按组注册：assets/study/review/ai/repair/annotate | 绕开 registerRoute；自己拼响应头                 |
-| `lib/routes/shared.mjs`            | 宿主（Node ESM）              | safeSend / fail / readJson / intParam 之外的公共出口      | 直接 res.writeHead 二次写头                      |
-| `lib/routes/paths.mjs`             | 宿主（Node ESM）              | 路由路径常量唯一出口                                      | handler 里写死路径字符串                         |
-| `lib/runtime.mjs`                  | 宿主（Node ESM）              | 词典/用户库单例、前端脚本 mtime 缓存                      | 路由层状态；加载 assets 里的业务逻辑             |
-| `lib/lookup.mjs`                   | 宿主（Node ESM）              | 查词组装（词典 + 补全 + 生词本 + 警告）                   | 直接注册路由                                     |
-| `lib/http.mjs`                     | 宿主（Node ESM）              | 路由层 query 参数读值与钳制                               | 在 handler 里裸写 `Number(...)`；自己夹上下限    |
-| `lib/store.mjs`                    | 宿主（Node ESM）              | 用户库门面：open/退避重试/close + 薄委托                  | 写业务 SQL（SQL 在 `lib/store/*.mjs`）           |
-| `lib/store/*.mjs`                  | 宿主（Node ESM）              | schema/迁移、生词本、统计/补记、设置；首参是 Store 实例   | 自己 open 库；把 `store.db` 往路由层传           |
-| `lib/ai-enrich.mjs`                | 宿主（Node ESM）              | 再导出层：保持既有 import 路径与导出名                    | 往里加实现（加进 `lib/enrich/*.mjs`）            |
-| `lib/enrich/*.mjs`                 | 宿主（Node ESM）              | AI 分析、义项材料、出题、后台队列、模型调用               | 直接读库；把外部失败抛给交互路径                 |
-| `lib/*.mjs`、`lib/text.js`         | 宿主（Node ESM）              | 词典、排期、翻译、R5、文本工具                            | import `assets/`；模块加载时开用户库             |
-| `assets/core.js`                   | 页面（普通 `<script>`，IIFE） | 划词纯判定：生效/排除范围、语音降级（`window.__dwlCore`） | DOM 副作用；重复实现判定（wordcard 只消费）      |
-| `assets/wordcard.js`               | 页面（普通 `<script>`，IIFE） | 划词卡片、浮层、调本插件路由；判定全部从 core 取          | import/export、`require`、`process`、改正文      |
-| `assets/voice.js`                  | 页面（普通 `<script>`，IIFE） | 浏览器语音合成封装（`window.__dwlVoice`）                 | 网络请求；音频缓存；改生效范围判定               |
-| `assets/wordcard.js`               | 页面（普通 `<script>`，IIFE） | 划词判定、浮层卡片、调本插件路由                          | import/export、`require`、`process`、改正文      |
-| `assets/annotate.js`               | 页面（普通 `<script>`，IIFE） | 给已学词加虚线下划线                                      | 同上；标代码块/流式内容/其它插件弹窗             |
-| `assets/dashboard.js`              | DSH 客户端（React 模块）      | 左栏入口、学习页、客户端 locale                           | Node API；ESM import；直连 SQLite                |
-| `data/ecdict.db`                   | 只读                          | ECDICT 精简词典，可重建                                   | 写入；提交进 git                                 |
-| `$DSH_HOME/dsh-word-learn/user.db` | 只经 `lib/store.mjs` 门面     | 生词本、卡片、复习日志、设置                              | 测试直连真实库                                   |
-| `$DSH_HOME/dsh-word-learn/cache/`  | 可删                          | 翻译缓存（发音不走网络，没有音频缓存）                    | 当持久数据依赖                                   |
-| `scripts/test-*.mjs`               | Node（手跑）                  | 回归脚本，可单独执行                                      | 真实网络、真实用户库                             |
-| `tests/`                           | Node（`node --test`）         | 新增功能的单测                                            | 同上                                             |
-| `design/`、`lab/`                  | 不运行                        | 历史设计稿、实验页、截图                                  | 被 `lib/` 或 `assets/` 引用                      |
-| `locale/`                          | 宿主与客户端                  | 包级文案（`meta.*`）                                      | 放业务文案                                       |
+| 路径                               | 跑在哪                        | 能做什么                                                                                      | 禁止什么                                                      |
+| ---------------------------------- | ----------------------------- | --------------------------------------------------------------------------------------------- | ------------------------------------------------------------- |
+| `lib/index.js`                     | 宿主（Node ESM）              | 注入行、信任栅栏、registerRoute 包装、挂载/卸载                                               | 写业务算法；写 handler；拼 SQL；import `assets/`              |
+| `lib/routes/*.mjs`                 | 宿主（Node ESM）              | 30 条路由按组注册（8 个注入脚本 + 22 个 API）：assets/study/review/ai/repair/annotate         | 绕开 registerRoute；自己拼响应头                              |
+| `lib/routes/shared.mjs`            | 宿主（Node ESM）              | safeSend / fail / readJson / isFalse；`clampInt` 从 http 再导出                               | 直接 res.writeHead 二次写头                                   |
+| `lib/routes/paths.mjs`             | 宿主（Node ESM）              | 路由路径常量唯一出口                                                                          | handler 里写死路径字符串                                      |
+| `lib/runtime.mjs`                  | 宿主（Node ESM）              | 词典/用户库单例、前端脚本 mtime 缓存                                                          | 路由层状态；加载 assets 里的业务逻辑                          |
+| `lib/lookup.mjs`                   | 宿主（Node ESM）              | 查词组装（词典 + 补全 + 生词本 + 警告）                                                       | 直接注册路由                                                  |
+| `lib/http.mjs`                     | 宿主（Node ESM）              | 入参读值与钳制的唯一归口：query `intParam` + body `clampInt`                                  | 在 handler 里裸写 `Number(...)`；自己夹上下限                 |
+| `lib/store.mjs`                    | 宿主（Node ESM）              | 用户库门面：open/退避重试/close + 薄委托                                                      | 写业务 SQL（SQL 在 `lib/store/*.mjs`）                        |
+| `lib/store/*.mjs`                  | 宿主（Node ESM）              | schema/迁移、生词本、统计/补记、设置；首参是 Store 实例                                       | 自己 open 库；把 `store.db` 往路由层传                        |
+| `lib/ai-enrich.mjs`                | 宿主（Node ESM）              | 再导出层：保持既有 import 路径与导出名                                                        | 往里加实现（加进 `lib/enrich/*.mjs`）                         |
+| `lib/enrich/*.mjs`                 | 宿主（Node ESM）              | AI 分析、义项材料、出题、后台队列、模型调用                                                   | 直接读库；把外部失败抛给交互路径                              |
+| `lib/*.mjs`、`lib/text.js`         | 宿主（Node ESM）              | 词典、排期、翻译、R5、文本工具                                                                | import `assets/`；模块加载时开用户库                          |
+| `assets/core.js`                   | 页面（普通 `<script>`，IIFE） | 划词纯判定 + **排除范围单一来源**（`BLOCKED_ELEMENTS`/`blockedSelector`，`window.__dwlCore`） | DOM 副作用；另抄一份排除名单                                  |
+| `assets/wordcard.js`               | 页面（普通 `<script>`，IIFE） | 划词卡片装配：选区 → 请求 → 状态机；视图/样式从 `window.__dwlWordcard*` 取                    | import/export、`require`、`process`、改正文                   |
+| `assets/wordcard-card.js`          | 页面（普通 `<script>`，IIFE） | 卡片视图：DOM 构建/渲染/定位（`window.__dwlWordcardCard`）                                    | 注册事件；持有状态（DOM 句柄由调用方传入）                    |
+| `assets/wordcard-style.js`         | 页面（普通 `<script>`，IIFE） | 卡片 CSS 字符串（`window.__dwlWordcardStyle`）                                                | 碰 DOM；import/export                                         |
+| `assets/voice.js`                  | 页面（普通 `<script>`，IIFE） | 浏览器语音合成封装（`window.__dwlVoice`）                                                     | 网络请求；音频缓存；改生效范围判定                            |
+| `assets/annotate.js`               | 页面（普通 `<script>`，IIFE） | 给已学词加虚线下划线；排除项从 core 取，拿不到 core 就整体跳过                                | 同上；标代码块/流式内容/其它插件弹窗                          |
+| `assets/dashboard.js`              | DSH 客户端（React 模块）      | 左栏入口、学习页组件、客户端 locale；`__test__` 供单测                                        | Node API；ESM import；直连 SQLite；模块期快照 `window.__dwl*` |
+| `assets/dashboard-logic.js`        | 页面（普通 `<script>`，IIFE） | 学习页纯逻辑/常量/取数（`window.__dwlDashboardLogic`）                                        | React；监听事件；写样式                                       |
+| `assets/dashboard-style.js`        | 页面（普通 `<script>`，IIFE） | 学习页 CSS 模板串（`window.__dwlDashboardCSS`）                                               | 碰 DOM；import/export                                         |
+| `data/ecdict.db`                   | 只读                          | ECDICT 精简词典，可重建                                                                       | 写入；提交进 git                                              |
+| `$DSH_HOME/dsh-word-learn/user.db` | 只经 `lib/store.mjs` 门面     | 生词本、卡片、复习日志、设置                                                                  | 测试直连真实库                                                |
+| `$DSH_HOME/dsh-word-learn/cache/`  | 可删                          | 翻译缓存（发音不走网络，没有音频缓存）                                                        | 当持久数据依赖                                                |
+| `scripts/test-*.mjs`               | Node（手跑）                  | 回归脚本，可单独执行                                                                          | 真实网络、真实用户库                                          |
+| `tests/`                           | Node（`node --test`）         | 新增功能的单测                                                                                | 同上                                                          |
+| `design/`、`lab/`                  | 不运行                        | 历史设计稿、实验页、截图                                                                      | 被 `lib/` 或 `assets/` 引用                                   |
+| `locale/`                          | 宿主与客户端                  | 包级文案（`meta.*`）                                                                          | 放业务文案                                                    |
 
 分文件是因为"改翻译不碰排期"：词汇、存储、排期、外部能力（`translate`/`enrich`/`ai-enrich`/`models`）各一层，新模块照这个切法起名。
 发音在 `assets/voice.js`（纯浏览器 speechSynthesis，零网络），没有服务端模块。
+`assets/` 拆出来的脚本靠 `window.__dwl*` 全局串联，注入顺序即依赖顺序（§7.1）；样式类脚本只导出字符串。
 
 ## 2. 三条铁律
 
@@ -144,6 +148,16 @@ const limit = intParam(url, 'limit', { fallback: 200, min: 1, max: 500, floor: t
 ```
 
 - 禁止在 handler 里裸写 `Number(url.searchParams.get(...))`：读值与钳制只留一个入口。
+- **POST body 的数字字段走 `lib/http.mjs` 的 `clampInt(value, { fallback, min, max })`**
+  （与 `intParam` 同归口、同语义，只是入参是值而不是 URL）；`Number(payload.x) || 0` 是历史写法，新代码不许再用。
+  `lib/routes/shared.mjs` 只做再导出，handler 的 `import { clampInt } from './shared.mjs'` 照旧可用。
+  业务合法性（如 `rating` 必须 1-4）仍留在 handler 校验——钳制不是"把非法值修好"。
+- 这条不止管 handler：handler 下游**接收 payload 的函数**（如 `lib/r5.mjs` 的 `submitRecap`）
+  同样要过 `clampInt`，否则从 handler 漏出去的那一段还是裸 `Number()`。
+  这类业务模块直接 `import { clampInt } from './http.mjs'`——**业务层不许反向依赖 `lib/routes/`**。
+  唯一豁免是「当时间戳用」的注入字段（`payload.now`）：它靠 `isFinite` + 正数守卫回落
+  `Date.now()`，套 `clampInt` 会把 `±Infinity` 夹成安全整数边界，造出一个假的"现在"。
+- 现状：`repair`/`review` 的 body 数字与 `r5.mjs` 的 `submitRecap` 已收编；`payload.now` 是唯一豁免。
 - `fallback` 兜的是缺省 / 空串 / 非数字 / 0，与旧的 `Number(x) || fallback` 等价。
 - `floor: true` 只给分页类（`limit`/`offset`），其余参数保持原值。
 - 字符串用 `strParam(source, name, fallback)`，进库/外呼前再 `slice(0, N)`；布尔用 `isFalse()`
@@ -154,30 +168,36 @@ const limit = intParam(url, 'limit', { fallback: 200, min: 1, max: 500, floor: t
 ### 4.1 预算表怎么读
 
 `max-lines` 按**代码行**算：空行和注释不计。所以预算衡量的是"代码有多复杂"，不是"文件多长"，
-注释写得多不会报警。默认 400；已豁免的都在 `eslint.config.js` 的 `CODE_BUDGET`，每一条都是历史债：
+注释写得多不会报警。默认 400；已豁免的都在 `eslint.config.js` 的 `CODE_BUDGET`，每一条都是历史债。
+2026-11-05 拆分后 `dashboard-style.js` 是**唯一新增**条目（CSS 模板串单列 509）；
+`dashboard.js` 3900→3000、`wordcard.js` 1030→540 都是**只降不升**。
 
-| 文件                        | 预算 | 现状（代码行）                                      |
-| --------------------------- | ---- | --------------------------------------------------- |
-| `lib/index.js`              | 210  | 203：注入行 + 栅栏 + registerRoute 包装 + 挂载/卸载 |
-| `lib/routes/*.mjs`          | 400  | 默认预算；六组里最重 repair 230                     |
-| `lib/runtime.mjs`           | 400  | 29：单例 + 四段脚本缓存                             |
-| `lib/lookup.mjs`            | 400  | 71：查词组装                                        |
-| `lib/http.mjs`              | 400  | 17：query 读值与钳制                                |
-| `lib/store.mjs`             | 150  | 116：门面 open/重试/close + 25 个薄委托             |
-| `lib/store/*.mjs`           | 400  | 走默认；最重 words 308                              |
-| `lib/ai-enrich.mjs`         | 10   | 5：再导出层                                         |
-| `lib/enrich/*.mjs`          | 400  | 走默认；最重 llm 195                                |
-| `lib/r5.mjs`                | 380  | 348：R5 回访 + 义项地图                             |
-| `lib/schedule.mjs`          | 300  | 266：FSRS 映射 / 队列 / 毕业                        |
-| `lib/dict.mjs`              | 260  | 208：ECDICT 查询                                    |
-| `assets/core.js`            | 400  | 80：划词纯判定（默认预算）                          |
-| `assets/dashboard.js`       | 3900 | 3728：学习页四视图 + CSS，最大                      |
-| `assets/annotate.js`        | 1300 | 1283：标注全流程                                    |
-| `assets/wordcard.js`        | 1030 | 1026：划词卡片 + CSS（只剩 4 行余量）               |
-| `assets/voice.js`           | 400  | 388：语音封装（默认预算）                           |
-| `scripts/test-routes.mjs`   | 680  | 650                                                 |
-| `scripts/test-r5.mjs`       | 590  | 559                                                 |
-| `scripts/test-annotate.mjs` | 590  | 560                                                 |
+| 文件                        | 预算 | 现状（代码行）                                           |
+| --------------------------- | ---- | -------------------------------------------------------- |
+| `lib/index.js`              | 210  | 207：注入链 + 栅栏 + registerRoute 包装 + 挂载/卸载      |
+| `lib/routes/*.mjs`          | 400  | 默认预算；六组里最重 repair 230（assets 136、study 224） |
+| `lib/runtime.mjs`           | 400  | 33：单例 + 8 个脚本的 mtime 缓存                         |
+| `lib/lookup.mjs`            | 400  | 71：查词组装                                             |
+| `lib/http.mjs`              | 400  | 23：query / body 入参读值与钳制                          |
+| `lib/store.mjs`             | 150  | 116：门面 open/重试/close + 25 个薄委托                  |
+| `lib/store/*.mjs`           | 400  | 走默认；最重 words 308（schema 184）                     |
+| `lib/ai-enrich.mjs`         | 10   | 5：再导出层                                              |
+| `lib/enrich/*.mjs`          | 400  | 走默认；最重 llm 195（queue 101）                        |
+| `lib/r5.mjs`                | 380  | 349：R5 回访 + 义项地图                                  |
+| `lib/schedule.mjs`          | 300  | 266：FSRS 映射 / 队列 / 毕业                             |
+| `lib/dict.mjs`              | 260  | 208：ECDICT 查询                                         |
+| `assets/core.js`            | 400  | 105：划词纯判定 + 排除范围单一来源（默认预算）           |
+| `assets/wordcard.js`        | 540  | 520：卡片装配/请求/状态机（预算由 1030 下调）            |
+| `assets/wordcard-card.js`   | 400  | 380：卡片视图（默认预算）                                |
+| `assets/wordcard-style.js`  | 400  | 141：卡片 CSS（默认预算）                                |
+| `assets/dashboard.js`       | 3000 | 2990：学习页四视图（预算由 3900 下调，只剩 10 行余量）   |
+| `assets/dashboard-logic.js` | 400  | 398：学习页纯逻辑（默认预算，只剩 2 行余量）             |
+| `assets/dashboard-style.js` | 509  | 500：学习页 CSS 模板串（**唯一新增预算条目**）           |
+| `assets/annotate.js`        | 1300 | 1278：标注全流程                                         |
+| `assets/voice.js`           | 400  | 388：语音封装（默认预算）                                |
+| `scripts/test-routes.mjs`   | 680  | 667                                                      |
+| `scripts/test-r5.mjs`       | 590  | 559                                                      |
+| `scripts/test-annotate.mjs` | 590  | 565                                                      |
 
 **预算是警报，不是目标。** 贴着上限写不算达标，离上限很远也不代表写得好。
 
@@ -229,14 +249,17 @@ const limit = intParam(url, 'limit', { fallback: 200, min: 1, max: 500, floor: t
 
 - `kind: 'exact'` + 完整路径；路径常量集中在 `lib/routes/paths.mjs`（如 `API_LOOKUP`），handler 里不写死。
 - **写操作必须显式 `methods: ['POST']`**；不声明等于任何方法都放行，GET 也能顺手写库。
-- 前端脚本路由（`core.js`/`voice.js`/`client.js`/`annotate.js`）声明方法白名单 `GET`，
+- 前端脚本路由共 8 条（`core.js`/`voice.js`/`client.js`/`annotate.js`/`wordcard-style.js`/
+  `wordcard-card.js`/`dashboard-logic.js`/`dashboard-style.js`）声明方法白名单 `GET`，
   必须 `Cache-Control: no-store` 并按 mtime 重读（`lib/runtime.mjs` 的 `makeJsLoader`）。
+  注意 `/client.js` 返回的是 `wordcard.js`（历史路径名，别按名字猜）。
 - 新增一组领域时，才需要在 `lib/index.js` 里加一行 `registerXxxRoutes`。
 
 ### 5.2 入参
 
 - POST 体一律 `readJson(req)`：只接受 JSON 对象；数组/标量/`null`/空 body 在那里抛，
   由 handler 的 400 分支接管（别让它变成 `TypeError` → 500）。上限 256 KB。
+- body 的数字字段按 §3.6 用 `clampInt`（`lib/http.mjs`；handler 也可从 `lib/routes/shared.mjs` 取，那里是再导出），别裸写 `Number(payload.x)`。
 - GET query 全是字符串：布尔用 `isFalse()`，数字按 §3.6 钳制，字符串 `slice` 上限。
 - 词输入必须过 `looksLikeWord`（单 token 时）——路由是公开的，前端过滤不是唯一防线。
   2026-11 实测漏进来过 `≈62.3M` 的 `M`、`≈65.7k` 的 `k`。
@@ -345,9 +368,25 @@ const limit = intParam(url, 'limit', { fallback: 200, min: 1, max: 500, floor: t
 判据：**要挂进 DSH 布局 → client 模块；只加工页面内容 → 普通 script。**
 不要为"用上 React"把纯 DOM 功能塞进客户端包；也别想在普通 script 里注册 slot。
 
-注入顺序固定为 `core.js` → `voice.js` → `client.js` → `annotate.js`（`lib/index.js` 的 `INJECT_TEXT`，
-四个脚本各自带 `window.__dwl*` 守卫）。`core.js` 必须最先：`wordcard.js` 的判定全部从
-`window.__dwlCore` 取，取不到就静默不装卡片（不在 wordcard 里重复实现，避免口径漂移）。
+注入顺序固定为 8 段（`lib/index.js` 的 `SCRIPT_PATHS`，拼进 `INJECT_TEXT`）：
+`core.js` → `voice.js` → `wordcard-style.js` → `wordcard-card.js` → `dashboard-logic.js` →
+`dashboard-style.js` → `client.js`（实际返回 `wordcard.js`）→ `annotate.js`。
+每段各自带 `window.__dwl*` 守卫，缺依赖就静默降级；`tapIndex` 兜底（web 形态）只有 7 段——
+历史上没有 voice.js，行为保持不变。
+
+两条硬性契约（2026-11-05 普通刷新事故后加的）：
+
+1. **loader 必须 `async=false`**：动态 append 的 `<script>` 默认 `async=true`，41KB 的
+   `dashboard-style.js` 可能晚于 client 执行，dashboard 工厂就会拿到空 CSS。
+   `tests/unit/inject-order.test.mjs` 静态钉住顺序与 `async=false`。
+2. **消费方不许在模块工厂 / `apply()` 期快照 `window.__dwl*`**：DSH 的 client 入口是 immediately 的，
+   可能先于注入脚本执行。`dashboard.js` 一律 `assetOf(name)` **使用时读**全局，常量在渲染时读；
+   就绪判断用 `whenAssetsReady`（`dwl:assets-ready` 事件 + 20×50ms 轮询兜底）；
+   未就绪时入口渲染「正在加载」而不是崩页（`tests/unit/dashboard-refresh.test.mjs` 锁这条）。
+
+`core.js` 必须最先：它是排除范围的**单一来源**（`BLOCKED_ELEMENTS` + `blockedSelector`），
+`wordcard-card.js` 取它的语音按钮契约，`annotate.js` 取它的排除项；拿不到 core 就各自整体跳过，
+绝不另抄一份名单。
 
 ### 7.2 样式
 
@@ -362,6 +401,8 @@ const limit = intParam(url, 'limit', { fallback: 200, min: 1, max: 500, floor: t
 
 - `wordcard.js`：只**读**选区，只往 `document.body` 追加自己的浮层；绝不改正文节点、
   不包裹文本、不改宿主属性。异常一律吞掉（注释说明为什么），不能因为划词把页面搞白。
+- 排除范围只在 `assets/core.js` 维护（`BLOCKED_ELEMENTS` / `blockedSelector`）：`wordcard-card.js`
+  与 `annotate.js` 都消费它，别在各自文件里再列一份；`annotate.js` 拿不到 core 时整体跳过标注。
 - `annotate.js`：只在 `[data-chat-flow]` 内操作，且只包裹**自己认定的目标词**节点。
   排除代码块/行内代码/文件名/URL/链接、流式生成（`[data-streaming]` + 文本稳定 600ms）、
   折叠内容（只标标题）、其它插件弹窗。原文不改、不翻译。
@@ -376,11 +417,11 @@ const limit = intParam(url, 'limit', { fallback: 200, min: 1, max: 500, floor: t
 
 ### 7.5 热重载与验证
 
-| 改了什么                                                                        | 怎么生效                                                      |
-| ------------------------------------------------------------------------------- | ------------------------------------------------------------- |
-| `assets/core.js`、`assets/voice.js`、`assets/wordcard.js`、`assets/annotate.js` | 硬刷新页面（mtime 热重载，no-store）                          |
-| `assets/dashboard.js`                                                           | **重新激活插件**（改 `cordis.patch.yml` 触发 HMR 或重启宿主） |
-| `lib/**/*`                                                                      | 重挂插件即可，不必重启宿主                                    |
+| 改了什么                                                                                                                                                                   | 怎么生效                                                      |
+| -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------- |
+| 8 个注入脚本：`core.js`、`voice.js`、`wordcard-style.js`、`wordcard-card.js`、`client.js`（返回 `wordcard.js`）、`dashboard-logic.js`、`dashboard-style.js`、`annotate.js` | 硬刷新页面（mtime 热重载，no-store）                          |
+| `assets/dashboard.js`                                                                                                                                                      | **重新激活插件**（改 `cordis.patch.yml` 触发 HMR 或重启宿主） |
+| `lib/**/*`                                                                                                                                                                 | 重挂插件即可，不必重启宿主                                    |
 
 "生效没有"的权威信号是 `__DSH_BOOT__.entries` 里有没有 `dsh-word-learn`；取脚本用清单里的
 `url` 字段（`/plugins/??dsh-word-learn/client.js&rev=<hash>`），自己拼
@@ -419,12 +460,16 @@ const limit = intParam(url, 'limit', { fallback: 200, min: 1, max: 500, floor: t
 行 95% / 分支 85% / 函数 95%）：先把门槛钉在达标处，改坏了会红；没单测的模块不设假门槛。
 `scripts/test-*.mjs` 是历史端到端脚本，可单跑，但必须登记进 `scripts/test-all.mjs`，
 否则 CI 只跑一半。顺序：单跑通过 → 注册进 `test-all.mjs` → `pnpm verify`。
+现状：`tests/unit/` 11 个文件、110 条用例；`scripts/test-all.mjs` 仍收编 11 个脚本。
+其中 `inject-order`（注入顺序 + `async=false`）、`dashboard-refresh`（资产就绪竞态）、
+`dashboard-views`、`enrich-queue`（dispose 后重新武装）、`routes-shared`（`clampInt`）是这次拆分新加的守卫。
 
 `tests/unit/*.test.mjs` 是唯一单测目录，命令里的 glob 是 `tests/**/*.test.mjs`：别退回不带路径的
 `node --test`（那会把 `scripts/test-*.mjs` 也当单测跑，重复且更慢）。前端组件/纯函数用
 `tests/helpers/dashboard.mjs`：vm 整文件加载 `assets/dashboard.js`，提供最小 React + fetch 替身，
 从模块的 `__test__` 取 `HoverWord`/`WritePanel`/`SettingsView` 与
-`normalizeSpelling`/`editDistance`/`spellCheck`；`test-scope.mjs` 同样用 vm 加载 `assets/core.js`。
+`normalizeSpelling`/`editDistance`/`spellCheck`（加载器会先跑 `dashboard-logic.js` 与
+`dashboard-style.js`，模拟生产注入顺序）；`test-scope.mjs` 同样用 vm 加载 `assets/core.js`。
 
 ### 9.2 硬规则
 
@@ -437,7 +482,8 @@ const limit = intParam(url, 'limit', { fallback: 200, min: 1, max: 500, floor: t
 - 禁止打印后目测：用 `assert/strict`，失败信息写中文且能独立读懂，例如
   `assert.equal(got, 'child', 'children 应回退到原形 child，实际得到 ' + got)`。
 - 测前端判定**整文件 vm 加载真实源码**求值：`test-scope.mjs` 跑 `assets/core.js` 后从 `window.__dwlCore`
-  取函数；三个 dashboard 前端测试走 `tests/helpers/dashboard.mjs` + `__test__`。不要在测试里复制实现，
+  取函数；dashboard 前端测试走 `tests/helpers/dashboard.mjs` + `__test__`（整文件加载
+  `dashboard.js` + `dashboard-logic.js` + `dashboard-style.js`）。不要在测试里复制实现，
   也不要再按函数名切字符串（注释/缩进一变就碎）。
 - `--allow-real-db` 这类开关默认关闭，只允许人手在确认无副作用时打开。
 
@@ -450,13 +496,16 @@ const limit = intParam(url, 'limit', { fallback: 200, min: 1, max: 500, floor: t
 | 改排期/FSRS 映射         | 单测覆盖间隔序列（`test-schedule.mjs` 是范例）                 |
 | 改前端作用范围/标注判定  | `test-scope.mjs`/`test-annotate.mjs` 必须仍绿                  |
 | 改 dashboard 组件/纯函数 | `tests/helpers/dashboard.mjs` 加载后从 `__test__` 取，整文件测 |
+| 改注入链 / 资产就绪契约  | `tests/unit/inject-order` 与 `dashboard-refresh` 必须绿        |
+| 改 AI 队列生命周期       | `tests/unit/enrich-queue` 锁 dispose 后重新武装                |
 | 改响应形状               | 同步改前端调用与端到端断言                                     |
 | 纯注释/文档              | 不需要                                                         |
 
 ## 10. 完成定义（DoD）
 
 - [ ] 改动范围与任务一致，没有顺手重构无关代码。
-- [ ] 新增/改动的路由已在 `README.md`「接口」表登记。
+- [ ] 新增/改动的路由已在 `README.md`「接口」表登记；新增/拆出的注入脚本同时改 `paths.mjs`、
+      `lib/routes/assets.mjs`、`lib/index.js` 的 `SCRIPT_PATHS`，并同步 `tests/unit/inject-order.test.mjs`。
 - [ ] 新增行为有测试；修的 bug 有回归断言（且能说明它之前为什么红）。
 - [ ] 没有新增 `eslint-disable`（确需例外时写明原因 + 到期条件，见 §4.4）。
 - [ ] 没有调大 `CODE_BUDGET`；超预算已按 §4.3 拆分。

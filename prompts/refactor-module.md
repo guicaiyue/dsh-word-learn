@@ -11,7 +11,7 @@
 
 | 文件               | 行区                           | 为什么                                                             |
 | ------------------ | ------------------------------ | ------------------------------------------------------------------ |
-| `eslint.config.js` | 19–46                          | `CODE_BUDGET` 默认 400、豁免表、`skipBlankLines/skipComments` 口径 |
+| `eslint.config.js` | 19–51                          | `CODE_BUDGET` 默认 400、豁免表、`skipBlankLines/skipComments` 口径 |
 | `CONVENTIONS.md`   | §4 模块与拆分                  | 拆分判据、抽纯函数的顺序、禁止事项                                 |
 | 目标文件           | 1–45 文件头 + 全部导出/入口    | 先看清它对外承诺了什么                                             |
 | 目标文件           | 你要拆的那段及其调用点         | 用 grep 找全部引用，别漏动态调用                                   |
@@ -29,10 +29,16 @@
 4. **搬代码**：新建 `lib/<职责>.mjs`（或子目录），命名导出；原文件改为 `import`/薄委托。
    拆 store 这类有状态模块：子模块函数**第一个参数是 Store 实例**，门面只留 open/close 与薄委托
    （CONVENTIONS §6.2），别让两个模块各判一次「库开没开」。
+   拆 `assets/` 注入脚本：新脚本挂 `window.__dwlXxx` 全局、消费方**使用时读**（不许模块级快照）；
+   同时改四处：`lib/routes/paths.mjs` 常量、`lib/routes/assets.mjs` 路由、`lib/index.js` 的
+   `SCRIPT_PATHS`（顺序即依赖，loader 必须 `async=false`）、`README.md`「接口」表；
+   并同步 `tests/unit/inject-order.test.mjs`。样式拆出只导出 CSS 字符串，末尾
+   `dispatchEvent(new CustomEvent('dwl:assets-ready'))` 通知消费方。
    调用点一处一处改，不要一次全改完再跑。
 5. **处理新文件的预算**：默认 400；确实需要更高，才在 `eslint.config.js` 的 `CODE_BUDGET.files`
    里加**新文件**的条目，并同步 `CONVENTIONS.md` §4.1 的表。
-   **旧文件的预算是下调对象，不是上调对象。**
+   **旧文件的预算是下调对象，不是上调对象**：2026-11-05 拆完后 `dashboard.js` 3900→3000、
+   `wordcard.js` 1030→540，新增条目只有 `dashboard-style.js`（509，CSS 模板串）。
 6. **跑验证**，绿了再继续下一刀；一次只拆一个模块。
 
 ## 硬约束
@@ -73,6 +79,7 @@ git diff --stat           # 确认改动面与预期一致，没有意外文件
 行为不变证据：{{测试名}} 搬迁前后均绿；响应/导出契约未变
 
 验证：pnpm verify → {{结果}}；git diff --stat → {{改动面}}
+注入顺序：{{拆分后是否有变；变了就把 8 段顺序写全，并说明谁消费哪个 window.__dwl* 全局}}
 
 剩余风险：{{下一次该拆哪块 / 仍然存在的耦合点}}
 ```
