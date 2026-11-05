@@ -12,24 +12,122 @@
 //   3. **惰性打开**：数据库只在第一次查询时打开，避免插件加载就占住文件句柄。
 
 import fs from 'node:fs'
-import path from 'node:path'
 import { createRequire } from 'node:module'
+import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+
+import type { DatabaseSync } from 'node:sqlite'
+
+/** 词频分级结果。 */
+export interface FrequencyTier {
+  tier: string
+  rank: number
+  label: string
+}
+
+/** 一个变形（exchange 拆出来的条目）。 */
+export interface ExchangeForm {
+  key: string
+  label: string
+  value: string
+}
+
+/** 一条释义。 */
+export interface DictSense {
+  pos: string
+  text: string
+  domain?: string
+}
+
+/** 一个考试标签。 */
+export interface DictTag {
+  key: string
+  label: string
+}
+
+/** 变形词自己的词面（命中原形时备查）。 */
+export interface DictAsForm {
+  word: string
+  phonetic: string
+  senses: DictSense[]
+}
+
+/** 查一个词的结果（dict.lookup 的产物）。 */
+export interface DictInfo {
+  word: string
+  query: string
+  matchedBy: string
+  asForm: DictAsForm | null
+  phonetic: string
+  senses: DictSense[]
+  definition: string[]
+  forms: ExchangeForm[]
+  tags: DictTag[]
+  frequency: FrequencyTier
+  collins: number
+  oxford: number
+  pos: string
+  audio: string
+}
+
+/** dict 表的一行（只取查询用到的列）。 */
+interface DictRow {
+  word: string
+  lemma: string | null
+  phonetic: string | null
+  translation: string | null
+  definition: string | null
+  pos: string | null
+  collins: number | null
+  oxford: number | null
+  tag: string | null
+  bnc: number | null
+  frq: number | null
+  exchange: string | null
+  audio: string | null
+}
 
 // node:sqlite 是内置模块；用 createRequire 同步取到，因为 lookup() 要同步返回。
 const require = createRequire(import.meta.url)
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 
-// data/ 与 lib/ 是兄弟目录；link 安装与铺平安装都要能找到
-const DB_CANDIDATES = [
-  path.join(HERE, '..', 'data', 'ecdict.db'),
-  path.join(HERE, 'data', 'ecdict.db'),
-]
+/**
+ * 找 data/ecdict.db 的候选路径。
+ *
+ * 踩过的坑（2026-11-05，宿主 TS 迁移时实测）：这个文件从 `lib/dict.mjs` 搬到
+ * `src/host/dict.ts` 并编译到 `lib/host/dict.js` 后，`HERE` 相对路径整体下移一层，
+ * 原来的 `HERE/../data` 就指到 `lib/data` 去了 —— 结果是词典打不开、所有查词返回
+ * 「词典里没有这个词」，而 legacy 脚本只打印不红，verify 带病通过。
+ *
+ * 所以不再写死层数：从 HERE 往上最多走 5 层，找到「有 package.json 且有 data/ecdict.db」
+ * 的目录当作包根，这样源码位置（src/host/）、编译产物位置（lib/host/）、铺平安装都成立。
+ */
+function dbCandidates(): string[] {
+  const out: string[] = []
+  let dir = HERE
+  for (let i = 0; i < 5; i++) {
+    out.push(path.join(dir, 'data', 'ecdict.db'))
+    try {
+      if (fs.existsSync(path.join(dir, 'package.json'))) {
+        // 仓库根/安装根：只认这一层，别继续往上跑到别人的包
+        break
+      }
+    } catch {
+      /* 读不到就当没有，继续往上 */
+    }
+    const parent = path.dirname(dir)
+    if (parent === dir) break
+    dir = parent
+  }
+  return out
+}
+
+const DB_CANDIDATES = dbCandidates()
 
 // ECDICT 的 exchange 字段键 -> 中文名
 // p=过去式 d=过去分词 i=现在分词 3=三单 r=比较级 t=最高级 s=复数
-const EXCHANGE_LABELS = {
+const EXCHANGE_LABELS: Record<string, string> = {
   p: '过去式',
   d: '过去分词',
   i: '现在分词',
@@ -40,7 +138,7 @@ const EXCHANGE_LABELS = {
 }
 
 // 考试标签 -> 展示名
-const TAG_LABELS = {
+const TAG_LABELS: Record<string, string> = {
   zk: '中考',
   gk: '高考',
   cet4: '四级',
@@ -64,11 +162,11 @@ const TAG_LABELS = {
  *   前 20000   —— 雅思/托福/GRE 区间
  *   更靠后      —— 专业或低频词
  */
-export function frequencyTier(bnc, frq) {
+export function frequencyTier(bnc: number, frq: number): FrequencyTier {
   const ranks = [bnc, frq].filter((n) => Number.isFinite(n) && n > 0)
   if (!ranks.length) return { tier: 'unknown', rank: 0, label: '词频未知' }
   const rank = Math.min(...ranks)
-  let tier, label
+  let tier: string, label: string
   if (rank <= 1000) {
     tier = 'top1k'
     label = '最高频 1000 词'
@@ -89,9 +187,9 @@ export function frequencyTier(bnc, frq) {
 }
 
 /** 解析 exchange 字段，返回 [{key, label, value}]。 */
-function parseExchange(raw) {
+function parseExchange(raw: unknown): ExchangeForm[] {
   if (!raw) return []
-  const out = []
+  const out: ExchangeForm[] = []
   for (const part of String(raw).split('/')) {
     const index = part.indexOf(':')
     if (index < 0) continue
@@ -106,7 +204,7 @@ function parseExchange(raw) {
 }
 
 /** 把 ECDICT 的释义文本整理成结构化条目。 */
-function parseTranslation(raw) {
+function parseTranslation(raw: unknown): DictSense[] {
   if (!raw) return []
   return String(raw)
     .split('\n')
@@ -123,6 +221,10 @@ function parseTranslation(raw) {
 }
 
 export class Dictionary {
+  db: DatabaseSync | null
+  dbPath: string
+  error: string
+
   constructor() {
     this.db = null
     this.dbPath = ''
@@ -130,7 +232,7 @@ export class Dictionary {
   }
 
   /** 惰性打开数据库。返回是否可用。 */
-  open() {
+  open(): boolean {
     if (this.db) return true
     if (this.error) return false
 
@@ -153,29 +255,28 @@ export class Dictionary {
     try {
       // node:sqlite 是 Node 22+ 的实验特性，用动态 import 以便优雅降级
       const { DatabaseSync } = require('node:sqlite')
-      this.db = new DatabaseSync(target, { readOnly: true })
+      this.db = new DatabaseSync(target, { readOnly: true }) as DatabaseSync
       this.dbPath = target
       return true
-    } catch (err) {
+    } catch (err: any) {
       this.error = `打不开词典数据库：${(err && err.message) || err}`
       return false
     }
   }
 
   /** 精确查一个词（不做变形回退）。 */
-  #lookupExact(word) {
-    return this.db
-      .prepare(
-        `SELECT word, lemma, phonetic, translation, definition, pos, collins, oxford,
+  #lookupExact(word: string): DictRow | undefined {
+    return this.db!.prepare(
+      `SELECT word, lemma, phonetic, translation, definition, pos, collins, oxford,
                 tag, bnc, frq, exchange, audio
            FROM dict WHERE word = ?`,
-      )
-      .get(word)
+    ).get(word) as unknown as DictRow | undefined
   }
 
   /** 用变形表反查原形。 */
-  #lookupLemma(form) {
-    const row = this.db.prepare(`SELECT word FROM forms WHERE form = ?`).get(form)
+  #lookupLemma(form: string): string {
+    const row = this.db!.prepare(`SELECT word FROM forms WHERE form = ?`).get(form) as unknown as
+      { word: string } | undefined
     return row ? row.word : ''
   }
 
@@ -193,7 +294,7 @@ export class Dictionary {
    * 所以规则是：**只要命中的条目带 lemma（说明它本身是变形），就改用原形词条**，
    * 词频、标签、星级全部继承原形；它自己的释义仍放在 `asForm` 里备查。
    */
-  lookup(query) {
+  lookup(query: unknown): DictInfo | null {
     if (!this.open()) return null
     const raw = String(query || '')
       .trim()
@@ -264,7 +365,7 @@ export class Dictionary {
    * 词频是否"够常见，大概率不是生词"。
    * 这是给用户的判断依据，不是自动过滤——用户明确说入口不要筛。
    */
-  isLikelyKnown(info) {
+  isLikelyKnown(info: DictInfo | null): boolean {
     if (!info) return false
     const { tier } = info.frequency
     if (tier === 'top1k') return true
@@ -273,14 +374,14 @@ export class Dictionary {
     return false
   }
 
-  stats() {
+  stats(): { ok: false; error: string } | { ok: true; words: number; forms: number; path: string } {
     if (!this.open()) return { ok: false, error: this.error }
-    const words = this.db.prepare('SELECT COUNT(*) AS n FROM dict').get().n
-    const forms = this.db.prepare('SELECT COUNT(*) AS n FROM forms').get().n
+    const words = (this.db!.prepare('SELECT COUNT(*) AS n FROM dict').get() as { n: number }).n
+    const forms = (this.db!.prepare('SELECT COUNT(*) AS n FROM forms').get() as { n: number }).n
     return { ok: true, words, forms, path: this.dbPath }
   }
 
-  close() {
+  close(): void {
     if (this.db) {
       try {
         this.db.close()
