@@ -1,8 +1,8 @@
 /**
  * StatsView / VocabView —— 真实 React 渲染（jsdom + RTL）。
  *
- * 迁移自 `tests/unit/dashboard-views.test.mjs`（node:test + 299 行手搓 React 运行时
- * 的旧基座，已随迁移删除）。旧断言逐条保留，只把「遍历元素树取 props」换成
+ * 迁移自原先的 StatsView / VocabView node:test 用例（配套 299 行手搓 React 运行时的
+ * 旧基座，均已随迁移删除）。旧断言逐条保留，只把「遍历元素树取 props」换成
  * 「查真实 DOM / role / 可见文案」：
  *
  *   - 树遍历 `findAll(tree, n => n.type === ...)` → `container.querySelector` /
@@ -242,6 +242,25 @@ describe('VocabView', () => {
     expect(input.getAttribute('placeholder')).toBe('在已加载的 3 条里搜索')
     expect(screen.getByText('已加载 3 / 共 5 条')).toBeTruthy()
     expect(screen.getAllByRole('button', { name: '加载更多' }).length).toBe(1)
+  })
+
+  // 回归：aria-label 曾经写成 split('\\\\n')（多一层转义，取到的是字面量"\n"而不是换行符），
+  // 多行释义没被切掉，读屏名称会把整段释义念出来。断言只认第一义、且不含换行/字面 \n。
+  it('aria-label 只取第一义：多行释义不把换行带进读屏名称（split 回归）', async () => {
+    const { view } = await renderVocab(() => ({
+      ok: true,
+      items: [{ id: 1, word: 'alpha', translation: '第一义\n第二义\n第三义', freqTier: 'top1k' }],
+      total: 1,
+    }))
+
+    const row = vocabRows(view)[0]
+    const aria = row.getAttribute('aria-label') || ''
+    expect(aria).toBe('alpha，第一义')
+    expect(aria).not.toContain('\n')
+    expect(aria).not.toContain('\\n')
+    expect(aria).not.toContain('第二义')
+    // 同一份 translation 在行内也只显示第一义
+    expect(row.textContent).toBe('alpha第一义1k')
   })
 
   it('空词表：给引导文案，不出现行和"加载更多"', async () => {
