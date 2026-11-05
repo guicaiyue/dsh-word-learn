@@ -24,8 +24,8 @@ const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'dwl-r5-test-'))
 process.env.DSH_HOME = tmpHome
 
 const { Store } = await import('../lib/store.mjs')
-const { buildRecap, submitRecap, senseMap } = await import('../lib/r5.mjs')
-const { dayStart } = await import('../lib/schedule.mjs')
+const { buildRecap, submitRecap, senseMap } = await import('../lib/host/r5.js')
+const { dayStart } = await import('../lib/host/schedule.js')
 
 const HOUR = 3600000
 const DAY = 86400000

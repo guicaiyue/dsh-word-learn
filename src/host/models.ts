@@ -16,13 +16,93 @@
 // 用户自选的模型存在 user.db 的 settings 表里；自选的模型在目录里消失了
 // （换了适配器 / 删了模型）就自动退回第一个，不让插件卡在不可用的选择上。
 
-import { getService } from './service.mjs'
+import { getService, type ServiceHost } from './service.js'
+
+/** 设置读写用到的最小能力子集（lib/store.mjs 的 Store 满足它）。 */
+export interface ModelSettingsStore {
+  getSetting?(key: string): string | null | undefined
+  setSetting?(key: string, value: string): boolean
+  deleteSetting?(key: string): boolean
+}
+
+/** DSH 模型服务的最小接口；返回值形态由 DSH 决定，逐项窄化（外部未类型化边界）。 */
+interface LlmService {
+  listProviders(): unknown
+  listModels(provider: string): Promise<unknown>
+}
+
+/** 会话默认模型服务的最小接口（外部服务边界）。 */
+interface AgentDefaultModelService {
+  currentSelection?(): { provider?: string; model?: string } | null
+}
+
+/** DSH 模型目录里的适配器条目（外部未类型化输入，逐字段读取后窄化）。 */
+interface DshProviderEntry {
+  id?: unknown
+  name?: unknown
+}
+
+/** DSH 模型目录里的模型条目（外部未类型化输入，逐字段读取后窄化）。 */
+interface DshModelEntry {
+  id?: unknown
+  name?: unknown
+  description?: unknown
+  inputModalities?: unknown
+}
+
+/** 目录里一个可用的文本模型。 */
+export interface TextModelInfo {
+  provider: string
+  providerName: string
+  id: string
+  name: string
+  description: string
+}
+
+/** 拉目录失败的适配器。 */
+export interface ModelFailure {
+  provider: string
+  error: string
+}
+
+/** 一次目录快照：可用模型 + 失败适配器。 */
+export interface TextModelCatalog {
+  models: TextModelInfo[]
+  failures: ModelFailure[]
+}
+
+/** 用户自选的模型（settings 里 ai_model 的解析结果）。 */
+export interface SavedModelSelection {
+  provider: string
+  model: string
+}
+
+/** resolveAiModel 的完整结果（source 表示这次是从哪条路选出来的）。 */
+export interface ResolvedAiModel {
+  provider: string
+  model: string
+  name: string
+  providerName: string
+  source: 'custom' | 'default' | 'agent' | 'none'
+  saved: boolean
+  models: TextModelInfo[]
+  failures: ModelFailure[]
+}
+
+/** 给前端的精简结果（不重复带整张模型表）。 */
+export interface PublicModelSelection {
+  provider: string
+  model: string
+  name: string
+  providerName: string
+  source: string
+}
 
 /** settings 表里存自选模型的键；值是一个 JSON 字符串 { provider, model }。 */
 const SETTING_KEY = 'ai_model'
 
 /** 从 cordis 上下文里取服务（取法见 service.mjs：服务只在 ctx.get 上）。 */
-function service(ctx, name) {
+function service(ctx: ServiceHost | null | undefined, name: string): unknown {
   return getService(ctx, name) || undefined
 }
 
@@ -33,8 +113,11 @@ function service(ctx, name) {
  * 显式声明了但不含 text（例如纯图像模型）才排除。判断放到这里而不是算在调用方，
  * 是因为"文本模型列表"是这个模块的对外承诺。
  */
-function isTextModel(model) {
-  const modalities = model && model.inputModalities
+function isTextModel(model: unknown): boolean {
+  const modalities =
+    model && typeof model === 'object'
+      ? (model as { inputModalities?: unknown }).inputModalities
+      : model
   if (!Array.isArray(modalities) || modalities.length === 0) return true
   return modalities.includes('text')
 }
@@ -46,29 +129,31 @@ function isTextModel(model) {
  *
  * @returns {Promise<{models: Array<{provider,providerName,id,name,description}>, failures: Array<{provider,error}>}>}
  */
-export async function listTextModels(ctx) {
-  const llm = service(ctx, 'llm')
+export async function listTextModels(
+  ctx: ServiceHost | null | undefined,
+): Promise<TextModelCatalog> {
+  const llm = service(ctx, 'llm') as LlmService | null
   if (!llm || typeof llm.listProviders !== 'function' || typeof llm.listModels !== 'function') {
     return { models: [], failures: [{ provider: '', error: 'DSH 模型服务不可用（ctx.llm 缺失）' }] }
   }
 
-  let providers
+  let providers: unknown
   try {
     providers = llm.listProviders()
-  } catch (err) {
+  } catch (err: any) {
     return { models: [], failures: [{ provider: '', error: (err && err.message) || String(err) }] }
   }
   if (!Array.isArray(providers)) providers = []
 
-  const models = []
-  const failures = []
+  const models: TextModelInfo[] = []
+  const failures: ModelFailure[] = []
 
-  for (const provider of providers) {
+  for (const provider of providers as DshProviderEntry[]) {
     const providerId = String((provider && provider.id) || '')
     if (!providerId) continue
     try {
       const list = await llm.listModels(providerId)
-      for (const model of Array.isArray(list) ? list : []) {
+      for (const model of (Array.isArray(list) ? list : []) as DshModelEntry[]) {
         if (!model || typeof model.id !== 'string' || !model.id) continue
         if (!isTextModel(model)) continue
         models.push({
@@ -79,7 +164,7 @@ export async function listTextModels(ctx) {
           description: typeof model.description === 'string' ? model.description : '',
         })
       }
-    } catch (err) {
+    } catch (err: any) {
       failures.push({ provider: providerId, error: (err && err.message) || String(err) })
     }
   }
@@ -88,7 +173,9 @@ export async function listTextModels(ctx) {
 }
 
 /** 读用户自选的模型。返回 `{ provider, model }` 或 null（没选过／库坏了）。 */
-export function readSavedSelection(store) {
+export function readSavedSelection(
+  store: ModelSettingsStore | null | undefined,
+): SavedModelSelection | null {
   if (!store || typeof store.getSetting !== 'function') return null
   const raw = store.getSetting(SETTING_KEY)
   if (!raw) return null
@@ -104,7 +191,11 @@ export function readSavedSelection(store) {
 }
 
 /** 存用户自选的模型。 */
-export function saveSavedSelection(store, provider, model) {
+export function saveSavedSelection(
+  store: ModelSettingsStore | null | undefined,
+  provider: unknown,
+  model: unknown,
+): boolean {
   if (!store || typeof store.setSetting !== 'function') return false
   return store.setSetting(
     SETTING_KEY,
@@ -113,7 +204,7 @@ export function saveSavedSelection(store, provider, model) {
 }
 
 /** 清掉自选模型，回到"目录里第一个"。 */
-export function clearSavedSelection(store) {
+export function clearSavedSelection(store: ModelSettingsStore | null | undefined): boolean {
   if (!store || typeof store.deleteSetting !== 'function') return false
   return store.deleteSetting(SETTING_KEY)
 }
@@ -133,7 +224,11 @@ export function clearSavedSelection(store) {
  * @returns {Promise<{provider,model,name,providerName,source,models,failures,saved}>}
  *   source: 'custom' 自选 | 'default' 目录第一个 | 'agent' 退回会话默认 | 'none' 无可用模型
  */
-export async function resolveAiModel(ctx, store, catalog) {
+export async function resolveAiModel(
+  ctx: ServiceHost | null | undefined,
+  store: ModelSettingsStore | null | undefined,
+  catalog?: TextModelCatalog,
+): Promise<ResolvedAiModel> {
   const list = catalog || (await listTextModels(ctx))
   const models = list.models || []
   const failures = list.failures || []
@@ -170,8 +265,8 @@ export async function resolveAiModel(ctx, store, catalog) {
   }
 
   // 目录不可用：退回会话默认模型，只为了"还能分析"
-  const defaults = service(ctx, 'agentDefaultModel')
-  let selection = null
+  const defaults = service(ctx, 'agentDefaultModel') as AgentDefaultModelService | null
+  let selection: { provider?: string; model?: string } | null = null
   if (defaults && typeof defaults.currentSelection === 'function') {
     try {
       selection = defaults.currentSelection()
@@ -205,7 +300,7 @@ export async function resolveAiModel(ctx, store, catalog) {
 }
 
 /** 把解析结果裁成前端需要的形状（不重复带整张模型表）。 */
-export function publicSelection(resolved) {
+export function publicSelection(resolved: ResolvedAiModel): PublicModelSelection {
   return {
     provider: resolved.provider || '',
     model: resolved.model || '',
@@ -216,7 +311,10 @@ export function publicSelection(resolved) {
 }
 
 /** 自选模型是否仍在目录里——设置页用它提示"你选的模型没了，已退回默认"。 */
-export function savedSelectionLost(store, models) {
+export function savedSelectionLost(
+  store: ModelSettingsStore | null | undefined,
+  models: TextModelInfo[] | null | undefined,
+): SavedModelSelection | null {
   const saved = readSavedSelection(store)
   if (!saved) return null
   const hit = (models || []).some((m) => m.provider === saved.provider && m.id === saved.model)

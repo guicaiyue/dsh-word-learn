@@ -24,7 +24,7 @@ const {
   clearSavedSelection,
   savedSelectionLost,
   publicSelection,
-} = await import('../lib/models.mjs')
+} = await import('../lib/host/models.js')
 const { analyzeWord, parseResponse, AnalysisError } = await import('../lib/ai-enrich.mjs')
 
 const providerCallLog = []

@@ -21,7 +21,7 @@ import {
   rowToCard,
   scheduleStatus,
   startOfLocalDay,
-} from '../../lib/schedule.mjs'
+} from '../../lib/host/schedule.js'
 
 const HOUR_MS = 60 * 60 * 1000
 /** 一个固定的本地时刻：2026-11-05 15:30:45.123（避开 UTC 零点，能测出时区错误）。 */

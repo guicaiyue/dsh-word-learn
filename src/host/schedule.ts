@@ -24,24 +24,176 @@
 // 而且它**不会报错**，只会让所有词的间隔永远是 0 天。
 // 所以 cards 表必须有 learning_steps 列，且每次往返都要带上。
 
+import type { DatabaseSync } from 'node:sqlite'
+
+/** 两条排期线之一。 */
+export type Track = 'receptive' | 'productive'
+
+/** 数据库行 → FSRS 卡片时用的卡片形态：在 ts-fsrs 的 Card 之外多带 elapsed_days（本项目自用）。 */
+export interface ScheduleCard {
+  due: Date
+  stability: number
+  difficulty: number
+  elapsed_days: number
+  scheduled_days: number
+  reps: number
+  lapses: number
+  state: number
+  learning_steps: number
+  last_review?: Date | undefined
+}
+
+/** 摊平回数据库列之后的排期行（写回 cards 表用）。 */
+export interface ScheduleCardRow {
+  due: number
+  stability: number
+  difficulty: number
+  elapsed_days: number
+  scheduled_days: number
+  reps: number
+  lapses: number
+  state: number
+  learning_steps: number
+  last_review: number
+}
+
+/** rowToCard 接受的数据库行（列可能缺失/为 NULL，取值时逐项兜底）。 */
+export interface CardRowLike {
+  due?: number | string | Date | null
+  stability?: unknown
+  difficulty?: unknown
+  elapsed_days?: unknown
+  scheduled_days?: unknown
+  reps?: unknown
+  lapses?: unknown
+  state?: unknown
+  learning_steps?: unknown
+  last_review?: number | string | Date | null
+}
+
+/** cards 表整行（SELECT * 后按需取列；SQLite 行值外部未类型化，用手写接口描述用到的列）。 */
+interface CardRow extends CardRowLike {
+  id: number
+  word_id: number
+  track: string
+  lapses: number
+}
+
+/** 到期队列查询的行。 */
+interface DueQueueRow {
+  id: number
+  word_id: number
+  track: string
+  word: string
+  phonetic: string | null
+  translation: string | null
+  freq_tier: string | null
+  starred: number | null
+  rec_state: number | null
+  rec_reps: number | null
+  sentence: string | null
+  due: number
+  state: number
+  reps: number
+  lapses: number
+}
+
+/** 到期队列里的一张卡（给学习页的扁平结构）。 */
+export interface DueCard {
+  cardId: number
+  wordId: number
+  track: string
+  trackLabel: string
+  word: string
+  phonetic: string
+  translation: string
+  sentence: string
+  freqTier: string
+  starred: boolean
+  due: number
+  state: number
+  reps: number
+  lapses: number
+  isNew: boolean
+  overdueDays: number
+}
+
+/** 未来若干天的到期预测点。 */
+export interface ForecastPoint {
+  day: number
+  date: number
+  count: number
+}
+
+/** 一次评分的结果；失败时 code 让路由区分 404（not_found）与 500（engine）。 */
+export type GradeResult =
+  | { ok: false; code?: string; error: string }
+  | {
+      ok: true
+      card: ScheduleCardRow & { id: unknown; track: unknown; leeched: boolean }
+      log: unknown
+      leeched: boolean
+    }
+
+/** 一个词两条线的当前状态（学习页展开单词时用）。 */
+export interface CardStateEntry {
+  id: number
+  track: string
+  trackLabel: string
+  due: number
+  state: number
+  stateLabel: string
+  reps: number
+  lapses: number
+  scheduledDays: number
+  stability: number
+  difficulty: number
+  suspended: boolean
+  leechCount: number | bigint
+}
+
+/** cards 表整行（cardStates 的 SELECT *）。 */
+interface CardStateRow extends CardRowLike {
+  id: number
+  track: string
+  due: number
+  state: number
+  reps: number
+  lapses: number
+  scheduled_days: number
+  stability: number
+  difficulty: number
+  leech_count: number | null
+  suspended: number | null
+}
+
+/** 本项目用到的 ts-fsrs 能力面（v6 的 legacy FSRS 入口；只声明用到的方法）。 */
+export interface FsrsEngine {
+  next(card: ScheduleCard, now: Date, grade: number): { card: Partial<ScheduleCard>; log: unknown }
+  retrievability(card: ScheduleCard, now: Date, before: boolean): number
+}
+
+/** 可以直接绑进 SQL 的地方 ID（外部传入的原始值先窄到这里）。 */
+type SqlBindable = string | number | bigint | null
+
 /** FSRS-6 的 21 个默认参数（与 DESIGN.md §4 一致，三源交叉验证过）。 */
-export const FSRS6_DEFAULT_W = [
+export const FSRS6_DEFAULT_W: number[] = [
   0.212, 1.2931, 2.3065, 8.2956, 6.4133, 0.8334, 3.0194, 0.001, 1.8722, 0.1666, 0.796, 1.4835,
   0.0614, 0.2629, 1.6483, 0.6014, 1.8729, 0.5425, 0.0912, 0.0658, 0.1542,
 ]
 
 /** 两条排期线。见 DESIGN.md §2.2：五维是画像，排期只有两条。 */
-export const TRACKS = ['receptive', 'productive']
+export const TRACKS: Track[] = ['receptive', 'productive']
 
-export const TRACK_LABEL = {
+export const TRACK_LABEL: Record<string, string> = {
   receptive: '认得出',
   productive: '写得出',
 }
 
 /** 评分档位。数字与 ts-fsrs 的 Rating 一致（1-4）。 */
-export const RATING = { Again: 1, Hard: 2, Good: 3, Easy: 4 }
+export const RATING: Record<string, number> = { Again: 1, Hard: 2, Good: 3, Easy: 4 }
 
-export const RATING_LABEL = {
+export const RATING_LABEL: Record<number, string> = {
   1: '忘了',
   2: '勉强',
   3: '记得',
@@ -63,15 +215,15 @@ export const DAILY_REVIEW_LIMIT = 200
 
 const DAY_MS = 86400000
 
-let fsrsMod = null
-let fsrsInstance = null
+let fsrsMod: typeof import('ts-fsrs') | null = null
+let fsrsInstance: FsrsEngine | null = null
 let fsrsError = ''
 
 /**
  * 载入 ts-fsrs。失败不抛，而是记下错误让上层降级 ——
  * 排期不可用时整个学习页仍应能打开看报表。
  */
-async function loadFsrs() {
+async function loadFsrs(): Promise<FsrsEngine | null> {
   if (fsrsInstance) return fsrsInstance
   if (fsrsError) return null
   try {
@@ -86,15 +238,15 @@ async function loadFsrs() {
         request_retention: 0.9,
         maximum_interval: 36500,
       }),
-    )
+    ) as unknown as FsrsEngine // ts-fsrs 的 Card 类型比本项目严格（state 用数字承载数据库值）
     return fsrsInstance
-  } catch (err) {
+  } catch (err: any) {
     fsrsError = `载入 ts-fsrs 失败：${(err && err.message) || err}`
     return null
   }
 }
 
-export function scheduleStatus() {
+export function scheduleStatus(): { ok: boolean; error: string } {
   return { ok: !!fsrsInstance, error: fsrsError }
 }
 
@@ -108,7 +260,7 @@ export function scheduleStatus() {
  * 看板这种"只读展示"的入口应该先调它，把状态问准。
  * 载入失败不抛异常，照常返回，让报表仍能打开。
  */
-export async function warmSchedule() {
+export async function warmSchedule(): Promise<{ ok: boolean; error: string }> {
   try {
     await loadFsrs()
   } catch (err) {
@@ -123,21 +275,21 @@ export async function warmSchedule() {
  * **不能用 UTC 零点**：用户在东八区，UTC 零点等于本地早上 8 点，
  * 那会让"今日复习"在早上 8 点突然换日 —— 明显不对。
  */
-export function startOfLocalDay(ts = Date.now()) {
+export function startOfLocalDay(ts = Date.now()): number {
   const d = new Date(ts)
   d.setHours(0, 0, 0, 0)
   return d.getTime()
 }
 
 /** 本地时区第 n 天的零点。 */
-export function dayStart(n = 0, from = Date.now()) {
+export function dayStart(n = 0, from = Date.now()): number {
   const d = new Date(startOfLocalDay(from))
   d.setDate(d.getDate() + n)
   return d.getTime()
 }
 
 /** 把数据库行变成 FSRS 要的卡片对象。**必须带上 learning_steps**。 */
-export function rowToCard(row, now = Date.now()) {
+export function rowToCard(row: CardRowLike, now = Date.now()): ScheduleCard {
   return {
     due: new Date(row.due || now),
     stability: Number(row.stability) || 0,
@@ -153,7 +305,7 @@ export function rowToCard(row, now = Date.now()) {
 }
 
 /** 把 FSRS 的卡片对象摊平成数据库列。 */
-export function cardToRow(card, now = Date.now()) {
+export function cardToRow(card: Partial<ScheduleCard>, now = Date.now()): ScheduleCardRow {
   return {
     due: card.due ? new Date(card.due).getTime() : now,
     stability: card.stability || 0,
@@ -178,8 +330,8 @@ export function cardToRow(card, now = Date.now()) {
  * （见 `productiveReady` 与 `dueQueue`）。早先的实现漏了这一步：两张卡
  * 同时 due，队列里同一个词紧挨着出现两次。
  */
-export function ensureCards(db, wordId, now = Date.now()) {
-  const created = []
+export function ensureCards(db: DatabaseSync, wordId: SqlBindable, now = Date.now()): Track[] {
+  const created: Track[] = []
   for (const track of TRACKS) {
     const existing = db
       .prepare('SELECT id FROM cards WHERE word_id = ? AND track = ?')
@@ -205,7 +357,9 @@ export function ensureCards(db, wordId, now = Date.now()) {
  * 条件： receptive 已进入复习态（state>=2）且至少评过 2 次。
  * 反复评"忘了/勉强"的词会一直停在 learning（state=1），正好也该继续练认。
  */
-export function productiveReady(receptive) {
+export function productiveReady(
+  receptive: { state?: unknown; reps?: unknown } | null | undefined,
+): boolean {
   if (!receptive) return false
   return Number(receptive.state) >= 2 && Number(receptive.reps) >= 2
 }
@@ -223,7 +377,10 @@ export function productiveReady(receptive) {
  * 新卡受 DAILY_NEW_LIMIT 限制 —— 这是防积压的关键闸门：
  * 一天塞 200 个新词，第二天就会放弃。
  */
-export function dueQueue(db, { now = Date.now(), limit = DAILY_REVIEW_LIMIT } = {}) {
+export function dueQueue(
+  db: DatabaseSync,
+  { now = Date.now(), limit = DAILY_REVIEW_LIMIT }: { now?: number; limit?: number } = {},
+): DueCard[] {
   const endOfToday = dayStart(1, now)
 
   // 多取一些再筛：同一个词可能有两张卡，dedupe 后才会接近 limit
@@ -242,10 +399,10 @@ export function dueQueue(db, { now = Date.now(), limit = DAILY_REVIEW_LIMIT } = 
         ORDER BY c.due ASC, CASE WHEN c.track = 'receptive' THEN 0 ELSE 1 END
         LIMIT ?`,
     )
-    .all(endOfToday, Math.max(limit * 4, 200))
+    .all(endOfToday, Math.max(limit * 4, 200)) as unknown as DueQueueRow[]
 
-  const out = []
-  const seenWords = new Set()
+  const out: DueCard[] = []
+  const seenWords = new Set<number>()
   for (const r of rows) {
     // 规则 1：productive 线要等 receptive 稳了才上线（DESIGN.md §2.2 的阶段二）
     if (r.track === 'productive' && !productiveReady({ state: r.rec_state, reps: r.rec_reps })) {
@@ -295,8 +452,11 @@ export function dueQueue(db, { now = Date.now(), limit = DAILY_REVIEW_LIMIT } = 
  * 按**词**去重：两条线同一天到期，用户实际只需复习一次（见 dueQueue 的规则 2），
  * 不去重的话预测曲线会虚高一倍。
  */
-export function forecast(db, { days = 14, now = Date.now() } = {}) {
-  const out = []
+export function forecast(
+  db: DatabaseSync,
+  { days = 14, now = Date.now() }: { days?: number; now?: number } = {},
+): ForecastPoint[] {
+  const out: ForecastPoint[] = []
   for (let i = 0; i < days; i++) {
     const from = dayStart(i, now)
     const to = dayStart(i + 1, now)
@@ -306,7 +466,7 @@ export function forecast(db, { days = 14, now = Date.now() } = {}) {
           WHERE c.suspended = 0 AND w.graduated = 0 AND c.reps > 0
             AND c.due >= ? AND c.due < ?`,
       )
-      .get(from, to)
+      .get(from, to) as { n: number }
     out.push({ day: i, date: from, count: row.n })
   }
   return out
@@ -319,22 +479,28 @@ export function forecast(db, { days = 14, now = Date.now() } = {}) {
  * `log` 是 FSRS 自己算出的复习日志，直接存下来 —— 将来做参数优化
  * （逐用户拟合 w）需要它，现在不优化但数据要先攒。
  */
-export async function applyGrade(db, cardId, rating, { now = Date.now() } = {}) {
+export async function applyGrade(
+  db: DatabaseSync,
+  cardId: SqlBindable,
+  rating: unknown,
+  { now = Date.now() }: { now?: number } = {},
+): Promise<GradeResult> {
   const f = await loadFsrs()
   // `code` 让路由能区分"客户端给错了 id"（404）和"引擎真的坏了"（500）。
   // 只靠 ok:false 的话，卡不存在会被报成 500，像是服务器故障。
   if (!f) return { ok: false, code: 'engine', error: fsrsError || '排期引擎不可用' }
 
-  const row = db.prepare('SELECT * FROM cards WHERE id = ?').get(cardId)
+  const row = db.prepare('SELECT * FROM cards WHERE id = ?').get(cardId) as unknown as
+    CardRow | undefined
   if (!row) return { ok: false, code: 'not_found', error: '找不到这张卡' }
 
   const card = rowToCard(row, now)
   const grade = Math.max(1, Math.min(4, Math.round(Number(rating) || 3)))
 
-  let result
+  let result: { card: Partial<ScheduleCard>; log: unknown }
   try {
     result = f.next(card, new Date(now), grade)
-  } catch (err) {
+  } catch (err: any) {
     return { ok: false, error: `排期计算出错：${(err && err.message) || err}` }
   }
 
@@ -397,8 +563,10 @@ export async function applyGrade(db, cardId, rating, { now = Date.now() } = {}) 
 }
 
 /** 一个词两条线的当前状态（学习页展开单词时用）。 */
-export function cardStates(db, wordId) {
-  const rows = db.prepare('SELECT * FROM cards WHERE word_id = ?').all(wordId)
+export function cardStates(db: DatabaseSync, wordId: SqlBindable): CardStateEntry[] {
+  const rows = db
+    .prepare('SELECT * FROM cards WHERE word_id = ?')
+    .all(wordId) as unknown as CardStateRow[]
   return rows.map((r) => ({
     id: r.id,
     track: r.track,
@@ -420,10 +588,15 @@ export function cardStates(db, wordId) {
  * 每个词当前的"记住概率"（FSRS 的 retrievability）。
  * 学习页用它显示"这个词你现在还记得多牢"。
  */
-export async function retrievability(db, cardId, now = Date.now()) {
+export async function retrievability(
+  db: DatabaseSync,
+  cardId: SqlBindable,
+  now = Date.now(),
+): Promise<number | null> {
   const f = await loadFsrs()
   if (!f) return null
-  const row = db.prepare('SELECT * FROM cards WHERE id = ?').get(cardId)
+  const row = db.prepare('SELECT * FROM cards WHERE id = ?').get(cardId) as unknown as
+    CardRow | undefined
   if (!row || !row.stability) return null
   try {
     return f.retrievability(rowToCard(row, now), new Date(now), false)

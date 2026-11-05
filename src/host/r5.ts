@@ -59,14 +59,100 @@
 // 整词都没有可用原句就**跳过**，不用 personal_example 顶替 s1 —— 否则
 // same=true 时会变成「同一句话和自己比」，题目自相矛盾。
 
-import { clampInt } from './http.mjs'
-import { dayStart } from './schedule.mjs'
+import type { DatabaseSync } from 'node:sqlite'
+
+import { clampInt } from './http.js'
+import { dayStart } from './schedule.js'
+
+/** 只读推导 + 只写补记表用到的最小用户库能力（lib/store.mjs 的 Store 满足它）。 */
+export interface RecapStoreLike {
+  open(): boolean
+  db?: DatabaseSync | null
+  logRepair(entry: RepairLogEntry): unknown
+  openRepairDebt(cardId: number): unknown
+}
+
+/** 写 repair_log 的一行（store.logRepair 的入参）。 */
+export interface RepairLogEntry {
+  wordId: number
+  cardId: number | null
+  stage: string
+  ok: boolean | null
+  guess: string
+  elapsedMs: unknown
+}
+
+/** sense_meta.json 里本项目用到的字段（其余字段原样保留但不读）。 */
+export interface SenseMetaJson {
+  sense_here?: unknown
+  personal_example?: unknown
+  other_sense?: { sentence?: unknown; gloss?: unknown } | null
+  [key: string]: unknown
+}
+
+/** 候选词查询的一行。 */
+interface CandidateRow {
+  wordId: number
+  word: string
+  debtCardId: number | null
+  openedAt: number | null
+  anyCardId: number | null
+}
+
+/** 一个词凑出的 R5 题材料。 */
+interface RecapMaterial {
+  wordId: number
+  cardId: number
+  word: string
+  s1: string
+  personal: string
+  other: string
+  senseHere: string
+  otherGloss: string
+}
+
+/** R5 的一道判别题。 */
+export interface RecapTrial {
+  wordId: number
+  cardId: number
+  word: string
+  s1: string
+  s2: string
+  same: boolean
+  senseHere: string
+  otherGloss: string
+}
+
+/** submitRecap 的入参（HTTP body 原始值，进来后再钳制/归一）。 */
+export interface SubmitRecapPayload {
+  wordId?: unknown
+  cardId?: unknown
+  ok?: unknown
+  guess?: unknown
+  elapsedMs?: unknown
+  now?: unknown
+}
+
+/** 一次回访提交的结果。 */
+export interface SubmitRecapResult {
+  logged: boolean
+  cleared: boolean
+  opened: boolean
+  duplicate: boolean
+}
+
+/** 义项地图的一行。 */
+export interface SenseMapEntry {
+  senseKey: string
+  gloss: string
+  status: 'seen' | 'right' | 'wrong'
+}
 
 /** R5 在 repair_log 里的阶段标记。与 store.mjs 的注释一致。 */
-export const RECAP_STAGE = 'tomorrow'
+export const RECAP_STAGE: 'tomorrow' = 'tomorrow'
 
 /** 补记事件里允许的两个答案取值。 */
-export const RECAP_GUESS = { same: 'same', diff: 'diff' }
+export const RECAP_GUESS: { same: 'same'; diff: 'diff' } = { same: 'same', diff: 'diff' }
 
 /** 默认一次回访几道题。设计稿是 3–5 道（design/forgot-repair-loop.md §6）。 */
 const DEFAULT_LIMIT = 5
@@ -77,14 +163,14 @@ const MAX_LIMIT = 20
 // ---------------------------------------------------------------- 小工具
 
 /** 只留字母的小写形式，用来判断「这句话是不是只有单词本身」。 */
-function letters(s) {
+function letters(s: unknown): string {
   return String(s || '')
     .toLowerCase()
     .replace(/[^a-z]/g, '')
 }
 
 /** 是不是纯数字串（senseMap 允许直接传 word_id 做调试）。 */
-function isDigits(s) {
+function isDigits(s: string): boolean {
   if (!s) return false
   for (const ch of s) {
     if (ch < '0' || ch > '9') return false
@@ -98,7 +184,7 @@ function isDigits(s) {
  * 拒绝三种：空串、只有标点、整句等于单词本身（老版划词卡把选中文本当原句）。
  * 返回规范化后的原句；不可用返回空串。
  */
-function usableSentence(sentence, word) {
+function usableSentence(sentence: unknown, word: unknown): string {
   const s = String(sentence || '').trim()
   if (!s) return ''
   const bare = letters(s)
@@ -109,7 +195,7 @@ function usableSentence(sentence, word) {
 }
 
 /** 解析 sense_meta.json。坏 JSON 当没有材料，不抛。 */
-function readSenseJson(raw) {
+function readSenseJson(raw: string | null | undefined): SenseMetaJson | null {
   if (!raw) return null
   try {
     const obj = JSON.parse(raw)
@@ -120,7 +206,7 @@ function readSenseJson(raw) {
 }
 
 /** Fisher–Yates。只用于打散题意，不影响「同/异义各半」的配额。 */
-function shuffle(list) {
+function shuffle<T>(list: readonly T[]): T[] {
   const arr = list.slice()
   for (let i = arr.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1))
@@ -132,14 +218,14 @@ function shuffle(list) {
 }
 
 /** 取这个词的首选卡（拿不到债务卡时的兜底）。receptive 优先，与 ensureCards 一致。 */
-function firstCardId(db, wordId) {
+function firstCardId(db: DatabaseSync, wordId: unknown): number {
   const row = db
     .prepare(
       `SELECT id FROM cards WHERE word_id = ?
         ORDER BY CASE track WHEN 'receptive' THEN 0 ELSE 1 END, id
         LIMIT 1`,
     )
-    .get(Number(wordId))
+    .get(Number(wordId)) as { id: number } | undefined
   return row ? Number(row.id) : 0
 }
 
@@ -212,14 +298,14 @@ SELECT w.id AS wordId, w.word AS word,
  *
  * 返回 null 表示这个词凑不出 R5 的题。
  */
-function buildMaterial(db, row) {
+function buildMaterial(db: DatabaseSync, row: CandidateRow): RecapMaterial | null {
   // 最近一次义项材料就是 /repair 用的那份（store.getSenseMeta 同口径）
   const senseRow = db
     .prepare(
       `SELECT json, created_at AS createdAt FROM sense_meta WHERE word_id = ?
         ORDER BY created_at DESC, id DESC LIMIT 1`,
     )
-    .get(row.wordId)
+    .get(row.wordId) as { json: string | null; createdAt: number | null } | undefined
   const sense = readSenseJson(senseRow && senseRow.json)
   if (!sense) return null
 
@@ -231,7 +317,7 @@ function buildMaterial(db, row) {
   if (!personal || !otherSentence) return null
 
   /** 在若干条 context 里挑第一条可用的（最新的在前）。 */
-  const firstUsable = (rows) => {
+  const firstUsable = (rows: ReadonlyArray<{ sentence?: unknown }>): string => {
     for (const ctx of rows) {
       const usable = usableSentence(ctx.sentence, row.word)
       if (usable) return usable
@@ -241,14 +327,14 @@ function buildMaterial(db, row) {
 
   let s1 = ''
   // ① 优先：材料生成之前最近的一条原句（见文件头注释）
-  if (Number(senseRow.createdAt)) {
+  if (Number(senseRow!.createdAt)) {
     s1 = firstUsable(
       db
         .prepare(
           `SELECT sentence FROM contexts WHERE word_id = ? AND created_at <= ?
             ORDER BY created_at DESC, id DESC LIMIT 8`,
         )
-        .all(row.wordId, Number(senseRow.createdAt)),
+        .all(row.wordId, Number(senseRow!.createdAt)),
     )
   }
   // ② 兜底：材料比所有原句都早（比如先分析了、之后才存句子），退回最新可用
@@ -276,7 +362,7 @@ function buildMaterial(db, row) {
     personal,
     other: otherSentence,
     senseHere: String(sense.sense_here || '').trim(),
-    otherGloss: String(other.gloss || '').trim(),
+    otherGloss: String(other!.gloss || '').trim(),
   }
 }
 
@@ -294,8 +380,11 @@ function buildMaterial(db, row) {
  *
  * 失败一律返回 { trials: [] } —— 回访拿不到题就静默进主队列，绝不让学习页报错。
  */
-export function buildRecap(store, opts = {}) {
-  const empty = { trials: [] }
+export function buildRecap(
+  store: RecapStoreLike | null | undefined,
+  opts: { limit?: unknown; now?: unknown } = {},
+): { trials: RecapTrial[] } {
+  const empty: { trials: RecapTrial[] } = { trials: [] }
   try {
     if (!store || !store.open()) return empty
     const db = store.db
@@ -316,11 +405,21 @@ export function buildRecap(store, opts = {}) {
     // 多取一些候选：中间会有「没有义项材料 / 没有原句」被筛掉。
     const candidates = db
       .prepare(CANDIDATE_SQL)
-      .all(yFrom, yTo, yFrom, yTo, yFrom, yTo, todayFrom, todayFrom, Math.max(want * 4, 20))
+      .all(
+        yFrom,
+        yTo,
+        yFrom,
+        yTo,
+        yFrom,
+        yTo,
+        todayFrom,
+        todayFrom,
+        Math.max(want * 4, 20),
+      ) as unknown as CandidateRow[]
 
     // 材料筛选是逐词查询（N+1），取够 want*2 就早停：回访要快，
     // 没必要为了 5 道题把昨天所有候选词的 sense_meta/contexts 全读一遍。
-    const pool = []
+    const pool: RecapMaterial[] = []
     for (const row of candidates) {
       const material = buildMaterial(db, row)
       if (material) pool.push(material)
@@ -382,8 +481,11 @@ export function buildRecap(store, opts = {}) {
  * @param {number} [payload.now]       测试注入用的时间戳；默认 Date.now()
  * @returns {{ logged:boolean, cleared:boolean, opened:boolean, duplicate:boolean }}
  */
-export function submitRecap(store, payload = {}) {
-  const fail = { logged: false, cleared: false, opened: false, duplicate: false }
+export function submitRecap(
+  store: RecapStoreLike | null | undefined,
+  payload: SubmitRecapPayload = {},
+): SubmitRecapResult {
+  const fail: SubmitRecapResult = { logged: false, cleared: false, opened: false, duplicate: false }
   try {
     if (!store || !store.open()) return fail
     const db = store.db
@@ -423,7 +525,7 @@ export function submitRecap(store, payload = {}) {
             AND IFNULL(card_id, 0) = ?
           ORDER BY created_at DESC, id DESC LIMIT 1`,
       )
-      .get(wordId, RECAP_STAGE, todayFrom, cardKey)
+      .get(wordId, RECAP_STAGE, todayFrom, cardKey) as { id: number } | undefined
 
     let logged = false
     let cleared = false
@@ -513,7 +615,10 @@ export function submitRecap(store, payload = {}) {
  * @param {string|number} word  单词（小写不敏感；传数字当 word_id 用）
  * @returns {Array<{senseKey:string, gloss:string, status:'seen'|'right'|'wrong'}>}
  */
-export function senseMap(store, word) {
+export function senseMap(
+  store: RecapStoreLike | null | undefined,
+  word: string | number | null | undefined,
+): SenseMapEntry[] {
   try {
     if (!store || !store.open()) return []
     const db = store.db
@@ -524,8 +629,10 @@ export function senseMap(store, word) {
 
     // 允许直接传 word_id（前端只会传单词，这里给调试/测试留个口子）
     const wordRow = isDigits(raw)
-      ? db.prepare('SELECT id, word FROM words WHERE id = ?').get(Number(raw))
-      : db.prepare('SELECT id, word FROM words WHERE word = ?').get(raw.toLowerCase())
+      ? (db.prepare('SELECT id, word FROM words WHERE id = ?').get(Number(raw)) as
+          { id: number } | undefined)
+      : (db.prepare('SELECT id, word FROM words WHERE word = ?').get(raw.toLowerCase()) as
+          { id: number } | undefined)
     if (!wordRow) return []
 
     const rows = db
@@ -534,7 +641,11 @@ export function senseMap(store, word) {
            FROM sense_meta WHERE word_id = ?
           ORDER BY created_at DESC, id DESC`,
       )
-      .all(wordRow.id)
+      .all(wordRow.id) as Array<{
+      senseKey: string | null
+      json: string | null
+      createdAt: number | null
+    }>
     if (!rows.length) return []
 
     // 最近一次义项判别（同一义项多次就取最近一次）
@@ -544,11 +655,11 @@ export function senseMap(store, word) {
           WHERE word_id = ? AND stage = 'pick'
           ORDER BY created_at DESC, id DESC LIMIT 1`,
       )
-      .get(wordRow.id)
+      .get(wordRow.id) as { ok: number | null; createdAt: number | null } | undefined
 
     // 按时间就近归属（见函数头注释）
     let pickKey = ''
-    let pickStatus = 'seen'
+    let pickStatus: SenseMapEntry['status'] = 'seen'
     if (pick) {
       const owner = rows.find((row) => Number(row.createdAt) <= Number(pick.createdAt))
       if (owner) {
@@ -559,13 +670,13 @@ export function senseMap(store, word) {
       }
     }
 
-    const out = []
-    const seen = new Set()
+    const out: SenseMapEntry[] = []
+    const seen = new Set<string>()
     for (const row of rows) {
       const key = String(row.senseKey || '')
       if (!key || seen.has(key)) continue
       seen.add(key)
-      const json = readSenseJson(row.json) || {}
+      const json: SenseMetaJson = readSenseJson(row.json) || {}
       const gloss = String(json.sense_here || key).trim()
       out.push({
         senseKey: key,

@@ -4,7 +4,7 @@
 
 import { describe, test } from 'node:test'
 import assert from 'node:assert/strict'
-import { intParam, strParam } from '../../lib/http.mjs'
+import { intParam, strParam } from '../../lib/host/http.js'
 
 /** 两种入参形态必须等价：路由里既可能拿到 URL，也可能直接传 searchParams。 */
 const urlWith = (query) => new URL(`http://localhost/api?${query}`)

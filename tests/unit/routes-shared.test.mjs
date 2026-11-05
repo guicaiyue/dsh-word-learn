@@ -14,7 +14,7 @@ import { readFileSync } from 'node:fs'
 import { describe, test } from 'node:test'
 import assert from 'node:assert/strict'
 
-import { clampInt as clampIntFromHttp } from '../../lib/http.mjs'
+import { clampInt as clampIntFromHttp } from '../../lib/host/http.js'
 import { clampInt } from '../../lib/routes/shared.mjs'
 
 describe('clampInt', () => {
@@ -86,7 +86,7 @@ describe('body 数字字段全部收编（含 lib/r5.mjs）', () => {
     }
     // r5.mjs 唯一豁免：payload.now 是时间戳，走 isFinite/正数守卫回落 Date.now()；
     // clampInt 会把 ±Infinity 夹成安全整数边界，反而造出一个假的"现在"。
-    const r5 = read('../../lib/r5.mjs')
+    const r5 = read('../../src/host/r5.ts')
     const hits = r5.match(/Number\(payload\./g) || []
     assert.equal(hits.length, 1, 'r5.mjs 只允许保留 payload.now 这一处 Number()')
     assert.equal((r5.match(/Number\(payload\.now\)/g) || []).length, 1)

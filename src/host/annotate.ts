@@ -31,6 +31,90 @@
 // 记"哪句话对应哪条"。v1 取最近一条并在悬停卡上标明是"最近义项"；
 // v2 可以给 sense_meta 补 sentence 列做句子级匹配（见 design 文档演进路线）。
 
+import type { DatabaseSync } from 'node:sqlite'
+
+/** 查询失败时返回的结构：不带 words（前端据此保留旧词表）。 */
+export interface AnnotateFailure {
+  ok: false
+  error: string
+}
+
+/** 标注词表里的一行：w=原形词 t=首义 s=最近义项 c=代表卡片 id。 */
+export interface AnnotateWord {
+  w: string
+  t: string
+  s: string
+  c: number
+}
+
+/** 取「在学」词表成功的结果。 */
+export interface AnnotateOk {
+  ok: true
+  words: AnnotateWord[]
+  rev: string
+  total: number
+  truncated: boolean
+}
+
+export type AnnotateResult = AnnotateOk | AnnotateFailure
+
+/** 只读用户库用到的最小能力（lib/store.mjs 的 Store 满足它）。 */
+export interface AnnotateStoreLike {
+  open(): boolean
+  db?: DatabaseSync | null
+  error?: string
+}
+
+/** annotateWordList 的可选参数（用户输入的原始值，进来后再归一并钳制）。 */
+export interface AnnotateOptions {
+  limit?: unknown
+  minSeen?: unknown
+}
+
+/** words 表的内容投影行（rev 用）。 */
+interface WordRevRow {
+  n: number
+  wlen: number
+  tlen: number
+  plen: number
+  grad: number
+  seenCnt: number
+  seen: number
+  lastId: number
+}
+
+/** cards 表的内容投影行（rev 用）。 */
+interface CardRevRow {
+  n: number
+  susp: number
+  reps: number
+  lapses: number
+  state: number
+  reviewed: number
+  lastId: number
+}
+
+/** sense_meta 表的内容投影行（rev 用）。 */
+interface SenseRevRow {
+  n: number
+  created: number
+  jlen: number
+}
+
+/** 词表查询的行。 */
+interface PickRow {
+  wid: number
+  word: string | null
+  translation: string | null
+  card_id: number | null
+}
+
+/** 最近义项查询的行。 */
+interface SenseRow {
+  wid: number
+  json: string | null
+}
+
 const DEFAULT_LIMIT = 2000
 const MAX_LIMIT = 5000
 
@@ -44,7 +128,7 @@ const SENSE_SEPS = [10, 13]
  * translation 的入库形态是 `n. 收费；指控\nv. 充电`（sensesToText 的产物），
  * 第一行通常就是最常用的义项。这里只截断，不改写：前端要展示的是词典原文。
  */
-function firstSense(translation) {
+function firstSense(translation: unknown): string {
   const text = String(translation || '')
   let end = text.length
   for (let i = 0; i < text.length; i += 1) {
@@ -57,7 +141,7 @@ function firstSense(translation) {
 }
 
 /** sense_meta.json 里取 sense_here；坏 JSON / 空值都静默降级成 ''。 */
-function senseHereOf(json) {
+function senseHereOf(json: unknown): string {
   if (!json) return ''
   try {
     const obj = JSON.parse(String(json))
@@ -74,7 +158,7 @@ function senseHereOf(json) {
  * limit 归一化：缺省 2000；其余先 Number → NaN 走缺省，
  * 再 floor → clamp(1, 5000)。负数夹到 1、Infinity 夹到 5000（旧实现两者都会落回缺省）。
  */
-function normalizeLimit(raw) {
+function normalizeLimit(raw: unknown): number {
   if (raw === undefined || raw === null) return DEFAULT_LIMIT
   const n = Number(raw)
   if (Number.isNaN(n)) return DEFAULT_LIMIT
@@ -99,7 +183,7 @@ function normalizeLimit(raw) {
  * 已知边界：translation 改成长度相同的另一段文字不会改 rev（SQLite 没有内置 hash）。
  * 这种改写在本项目里不存在（释义要么补全变长、要么整段替换变长度）。
  */
-function revisionOf(db) {
+function revisionOf(db: DatabaseSync): string {
   const w = db
     .prepare(
       `SELECT COUNT(*) AS n,
@@ -112,7 +196,7 @@ function revisionOf(db) {
               IFNULL(MAX(id), 0) AS lastId
          FROM words`,
     )
-    .get()
+    .get() as unknown as WordRevRow
   const c = db
     .prepare(
       `SELECT COUNT(*) AS n,
@@ -124,7 +208,7 @@ function revisionOf(db) {
               IFNULL(MAX(id), 0) AS lastId
          FROM cards`,
     )
-    .get()
+    .get() as unknown as CardRevRow
   const s = db
     .prepare(
       `SELECT COUNT(*) AS n,
@@ -132,7 +216,7 @@ function revisionOf(db) {
               IFNULL(SUM(IFNULL(LENGTH(json), 0)), 0) AS jlen
          FROM sense_meta`,
     )
-    .get()
+    .get() as unknown as SenseRevRow
   return [
     w.n,
     w.wlen,
@@ -178,14 +262,17 @@ const PICK_SQL = `SELECT w.id            AS wid,
  * @returns {{ok:true, words:Array<{w:string,t:string,s:string,c:number}>, rev:string, total:number, truncated:boolean}
  *          | {ok:false, error:string}}
  */
-export function annotateWordList(store, opts = {}) {
+export function annotateWordList(
+  store: AnnotateStoreLike | null | undefined,
+  opts: AnnotateOptions = {},
+): AnnotateResult {
   if (!store || typeof store.open !== 'function') {
     return { ok: false, error: '用户库不可用' }
   }
-  let opened
+  let opened: boolean
   try {
     opened = store.open()
-  } catch (err) {
+  } catch (err: any) {
     return { ok: false, error: (err && err.message) || String(err) }
   }
   if (!opened) return { ok: false, error: store.error || '用户库打不开' }
@@ -211,12 +298,12 @@ export function annotateWordList(store, opts = {}) {
               GROUP BY w.id
            )`,
         )
-        .get(minSeen).n,
+        .get(minSeen)!.n,
     )
 
     // 一个词最多两条卡片（receptive / productive）。每组取 MIN(id) 作为代表卡片：
     // 不用窗口函数，避免老 SQLite 兼容问题。排序：最近加入的词优先。
-    const rows = db.prepare(PICK_SQL).all(minSeen, limit)
+    const rows = db.prepare(PICK_SQL).all(minSeen, limit) as unknown as PickRow[]
 
     if (!rows.length) {
       return { ok: true, words: [], rev, total, truncated: false }
@@ -239,8 +326,8 @@ export function annotateWordList(store, opts = {}) {
                    LIMIT 1
                 )`,
       )
-      .all(...rows.map((row) => row.wid))
-    const senseByWord = new Map()
+      .all(...rows.map((row) => row.wid)) as unknown as SenseRow[]
+    const senseByWord = new Map<number, string>()
     for (const row of senseRows) {
       const sense = senseHereOf(row.json)
       if (sense) senseByWord.set(row.wid, sense)
@@ -253,7 +340,7 @@ export function annotateWordList(store, opts = {}) {
       c: Number(row.card_id) || 0,
     }))
     return { ok: true, words, rev, total, truncated: total > words.length }
-  } catch (err) {
+  } catch (err: any) {
     // 查询失败不能伪装成"空词表"：空表会让前端清空整页标注。
     // 返回 ok:false（不带 words），前端据此保留旧词表与已有标注、只重试。
     return { ok: false, error: (err && err.message) || String(err) }

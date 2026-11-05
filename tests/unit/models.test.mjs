@@ -16,7 +16,7 @@ import {
   resolveAiModel,
   saveSavedSelection,
   savedSelectionLost,
-} from '../../lib/models.mjs'
+} from '../../lib/host/models.js'
 import { openTempStore, useTempHome } from '../helpers/tmp-home.mjs'
 
 // DSH_HOME 必须在 import store 之前设好；helper 只造目录，store 由 openTempStore 动态 import。

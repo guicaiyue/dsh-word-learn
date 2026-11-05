@@ -14,22 +14,35 @@
 // 或者以后 cordis 又把属性访问放宽）。
 
 /**
+ * cordis 上下文的最小结构：外部未类型化边界，这里只按实际用法取 `get` 与属性，
+ * 不复制 DSH 自己的 ctx 类型。
+ */
+export interface ServiceHost {
+  get?: (name: string) => unknown
+  root?: ServiceHost | null
+  [key: string]: unknown
+}
+
+/**
  * 取服务；拿不到返回 null，从不抛错。
  *
  * @param {object} ctx - 插件上下文（或任何带 get 的对象）
  * @param {string} name - 服务名，如 'llm'、'agentDefaultModel'
  * @returns {object|null}
  */
-export function getService(ctx, name) {
+export function getService<T = unknown>(
+  ctx: ServiceHost | null | undefined,
+  name: string,
+): T | null {
   if (!ctx) return null
   try {
     const viaGet = typeof ctx.get === 'function' ? ctx.get(name) : undefined
-    if (viaGet) return viaGet
+    if (viaGet) return viaGet as T
   } catch {
     /* 服务缺失时 ctx.get 可能抛错，忽略并继续尝试属性访问 */
   }
   try {
-    return ctx[name] || (ctx.root && ctx.root[name]) || null
+    return (ctx[name] || (ctx.root && ctx.root[name]) || null) as T | null
   } catch {
     return null
   }

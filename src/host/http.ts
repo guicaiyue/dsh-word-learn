@@ -17,6 +17,21 @@
 // 要用同一个钳制口，但不能为了一个纯函数反向依赖 routes 层。所以归口留在 http.mjs
 // （零依赖、纯函数），routes/shared.mjs 只做再导出，handler 的 import 不用改。
 
+/** query 参数既可能是 URL，也可能直接是它的 searchParams。 */
+export type ParamSource = URL | URLSearchParams
+
+/** `intParam` / `clampInt` 的钳制选项。 */
+export interface ParamBounds {
+  fallback?: number
+  min?: number
+  max?: number
+}
+
+/** `intParam` 的选项：在钳制之外多一个"是否取整"（分页类参数需要）。 */
+export interface IntParamOptions extends ParamBounds {
+  floor?: boolean
+}
+
 /**
  * 读一个数字型 query 参数，并夹到 [min, max]。
  *
@@ -26,8 +41,8 @@
  *   fallback：缺失/非法时的默认值；floor：是否取整（分页类参数需要）
  * @returns {number}
  */
-export function intParam(source, name, options = {}) {
-  const params = source && source.searchParams ? source.searchParams : source
+export function intParam(source: ParamSource, name: string, options: IntParamOptions = {}): number {
+  const params = source instanceof URL ? source.searchParams : source
   const {
     fallback = 0,
     min = Number.MIN_SAFE_INTEGER,
@@ -57,7 +72,7 @@ export function intParam(source, name, options = {}) {
  * @param {{fallback?: number, min?: number, max?: number}} [options]
  * @returns {number}
  */
-export function clampInt(value, { fallback = 0, min, max } = {}) {
+export function clampInt(value: unknown, { fallback = 0, min, max }: ParamBounds = {}): number {
   const raw = Number(value) || fallback
   const low = min === undefined ? Number.MIN_SAFE_INTEGER : min
   const high = max === undefined ? Number.MAX_SAFE_INTEGER : max
@@ -72,8 +87,8 @@ export function clampInt(value, { fallback = 0, min, max } = {}) {
  * @param {string} [fallback=''] 默认值
  * @returns {string}
  */
-export function strParam(source, name, fallback = '') {
-  const params = source && source.searchParams ? source.searchParams : source
+export function strParam(source: ParamSource, name: string, fallback = ''): string {
+  const params = source instanceof URL ? source.searchParams : source
   const value = params.get(name)
   return value === null || value === '' ? fallback : value
 }
