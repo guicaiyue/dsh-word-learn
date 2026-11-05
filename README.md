@@ -22,7 +22,8 @@
 - **只对对话正文生效**：选区两端必须落在 `[data-chat-flow]` 里（Chat 视图正文列）。
   左侧栏、右侧栏、轨迹（Trajectory）页、英语学习看板一律不响应。
   严格模式：锚点找不到就完全不弹，不会退回"全页面乱弹"。
-  改动前先跑 `node scripts/test-scope.mjs`（见 DESIGN.md 风险 19）
+  改动前先跑 `node --test tests/features/scope.test.mjs`（范围判定与排除名单的单一来源在
+  `src/client/features/core.js`，改这里必跑）
 - **划句子给译文**：选中整句时先给中文译文，下面再列可拆的候选词。
   优先用 **DSH 自己的模型**翻（技术语境更准，`reviews`→复习、`latent space`→潜空间），
   模型不可用时降级到 **MyMemory** 公共接口；翻译挂了也不影响拆词
@@ -116,7 +117,11 @@ python scripts\build_dict.py
 
 前端（划词卡 / 标注 / 学习页）全部在 `dist/client.js` 一个产物里，由宿主按
 `package.json` 的 `exports["./client"]` 加载 —— **没有**前端脚本路由，也没有页面注入。
-下面只剩数据面接口：
+宿主入口是 `package.json` 的 `exports["."]` → `lib/host/index.js`（`src/host/index.ts`
+经 `tsc -p tsconfig.host.json` 的产物；源码在 `src/host/**`）。
+
+下面 22 条数据面接口的路径以 `src/host/routes/paths.ts` 为唯一出口；写操作只接受表里
+声明的方法（其余方法 405 + `Allow` 头），跨站请求一律 403。
 
 | 方法     | 路径                             | 说明                                                             |
 | -------- | -------------------------------- | ---------------------------------------------------------------- |
@@ -147,97 +152,101 @@ python scripts\build_dict.py
 
 > **先读** `AGENTS.md`（改代码前的硬约束、「改 X 去哪里」定位表）和 `CONVENTIONS.md`
 > （工程规范：目录边界、路由契约、数据访问、测试纪律）。
-> **交付前跑 `pnpm verify`** —— 它是本插件唯一的验收命令（`lint` + `format:check` + 单测 + 回归脚本）。
+> **交付前跑 `pnpm verify`** —— 本插件唯一的验收命令：
+> `build`（tsdown 打客户端 + tsc 编宿主）→ `artifact:check` → `check:tarball`
+> → `check`（typecheck / lint / format:check / deps:check）
+> → `test`（unit / unit:coverage / component，vitest 同时收 component 与 integration）。
 > 具体任务的提示词模板在 `prompts/`：`fix-bug` / `add-route` / `edit-frontend` /
 > `refactor-module` / `write-test`。
+
+### 目录结构
+
+| 路径                                             | 说明                                                                                      |
+| ------------------------------------------------ | ----------------------------------------------------------------------------------------- |
+| `src/client/**`                                  | 前端源码（划词卡、标注、学习页）。tsdown 打成 `dist/client.js`（+ 外部 `.map`）           |
+| `src/host/**`                                    | 宿主源码（插件入口 `index.ts`、路由、词典/用户库/FSRS/AI 分析）。`tsc` 编到 `lib/host/**` |
+| `dist/`                                          | 客户端产物（gitignore，`pnpm build` 生成）                                                |
+| `lib/host/`                                      | 宿主产物（gitignore，`pnpm build` 生成）                                                  |
+| `tests/unit`、`tests/features`、`tests/contract` | `node:test`（`*.test.mjs`）                                                               |
+| `tests/component`                                | `vitest` + jsdom + RTL（`*.test.tsx`），渲染 `dist/client.js` 里的真实组件                |
+| `tests/integration`                              | `vitest`（node 环境，`*.test.ts`）：真实 ctx 桩 + 临时 `DSH_HOME` + 真实 `node:sqlite`    |
+| `tests/support`、`tests/helpers`                 | vitest 测试基座、node:test 的临时目录助手                                                 |
+| `data/ecdict.db`                                 | 精简词典（构建产物，见「重新生成词典」）                                                  |
 
 ### 常用命令
 
 ```powershell
-# 构建（阶段 1 起前端有构建步骤：src/client/** -> dist/client.js）
-pnpm build         # tsdown：产出 dist/client.js + dist/client.js.map
-pnpm dev           # tsdown --watch（改 src/client 自动重建，平台 500ms 内自动重载）
+# 构建：客户端 bundle + 宿主 tsc 产物，两个都要
+pnpm build         # tsdown -> dist/client.js(+.map)；tsc -p tsconfig.host.json -> lib/host/**
+pnpm dev           # tsdown --watch（只重建客户端）
+pnpm build:host    # 只编宿主（tsc -p tsconfig.host.json -> lib/host/**）
 
-# 类型与静态检测（tsc 管类型，ESLint 管正确性与目录边界，Prettier 管排版）
-pnpm typecheck     # tsc --noEmit（只覆盖 src/** 与配置文件；lib/** 的 JS 类型化在阶段 3）
+# 类型与静态检测
+pnpm typecheck     # tsc --noEmit（src/**，含宿主 TS）+ tsc -p tsconfig.host.json --noEmit
 pnpm lint          # eslint .
 pnpm lint:fix
 pnpm format        # prettier --write .
 pnpm format:check
 pnpm deps:check    # dependency-cruiser：环 + 分层方向 + 客户端不碰 node: 内建
 
-# 单元测试（tests/，node:test；加载 dist/client.js 构建产物）
+# 单元测试（node:test，跑 tests/**/*.test.mjs）
 pnpm test:unit
-
-# 单测 + 覆盖率门槛（http/text/models）
+# 单测 + 覆盖率门槛（只卡 lib/host/{http,text,models}.js 三个关键文件，95/85/95）
 pnpm test:unit:coverage
 
-# 组件测试（vitest + jsdom + 真实 React，渲染 dist 产物里的组件）
+# 组件测试 + 集成测试（vitest；跑之前先 pnpm build 重建 dist/client.js）
 pnpm test:component
+# 只跑集成测试（真实 ctx 桩 + 临时 DSH_HOME，不碰真实用户库）
+npx vitest run tests/integration
+# 只跑某一条
+npx vitest run tests/integration/routes.test.ts
 
-# 回归脚本（scripts/test-all.mjs 收编 scripts/test-*.mjs）
-pnpm test:legacy
-
-# 产物契约（单 factory / id / 无 node: / sourcemap / 体积预算）
+# 产物契约（单 factory / id / 无 node: / sourcemap / 体积预算 / locale）
 pnpm artifact:check
+pnpm check:tarball
 
-# 全部
-pnpm test          # test:unit + test:unit:coverage + test:component + test:legacy
-pnpm verify        # build + check + test + artifact:check，交付前唯一验收
+# 全部测试 / 交付前唯一验收
+pnpm test          # test:unit + test:unit:coverage + test:component（vitest 含 integration）
+pnpm verify        # build + artifact:check + check:tarball + check + test
 ```
 
-> **本地 link 安装后必须先 `pnpm build`**：DSH 从 `exports["./client"]`（现在是
-> `dist/client.js`）读客户端产物，产物缺失时宿主会报 `run pnpm run build before launch`。
+> **本地 link 安装后必须先 `pnpm build`**：DSH 从 `exports["."]`（`lib/host/index.js`）
+> 加载宿主入口、从 `exports["./client"]`（`dist/client.js`）读客户端产物，
+> 产物缺失时宿主会报 `run pnpm run build before launch`。
+>
+> 覆盖率现状：只有上面三个宿主关键文件有门槛；**全局覆盖率还没有统一**（`node:test`
+> 与 `vitest` 分开跑），记入残余风险。
 
-### 端到端与专项脚本（可单跑）
+### 改哪一半、要不要重启
 
-```powershell
-# 语法检查
-node --check lib\index.js
-
-# 端到端跑全部路由（不需要重启宿主）
-$env:DSH_HOME='D:\dsh-cache\tmp\wl-e2e'
-node --no-warnings scripts\test-routes.mjs
-
-# AI 分析模型：选择逻辑（models.mjs + analyzeWord）
-node --no-warnings scripts\test-ai-model.mjs
-
-# AI 分析模型：/models、/model 路由（假 llm，不花钱）
-node --no-warnings scripts\test-model-routes.mjs
-
-# 前端组件测试（vitest + jsdom + RTL，真实渲染构建产物 dist/client.js）
-# 先 pnpm build 重建产物；设置页渲染分支、划词卡、学习页视图都在这里
-pnpm test:component
-```
-
-**改哪一半、要不要重启**：
-
-| 改什么                              | 怎么生效                                                                                                                                                                |
-| ----------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `src/client/**`（前端全部源码）     | `pnpm dev`（tsdown --watch）重建 `dist/client.js` → 平台 client-hmr 轮询发现变化 → 自动重载模块；**不需要**刷新或重启（但面板会重挂，学习页退回首页，重点一次侧栏即可） |
-| `lib/**/*.mjs`（宿主侧路由/数据面） | **重挂插件**即可，不必重启宿主（见下）                                                                                                                                  |
+| 改什么                             | 怎么生效                                                                                                                                                                                  |
+| ---------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/client/**`（前端全部源码）    | `pnpm build`（或 `pnpm dev` 常驻）重建 `dist/client.js` → 平台 client-hmr 轮询发现变化 → 自动重载模块；**不需要**刷新或重启（但面板会重挂，学习页退回首页，重点一次侧栏「英语学习」即可） |
+| `src/host/**`（宿主路由 / 数据面） | `pnpm build`（`tsc` 把源码编到 `lib/host/**`）→ **重挂插件**（或重启宿主）后生效。宿主侧没有 mtime 热重载保证，别指望保存即生效                                                           |
+| `lib/host/**`、`dist/**`           | 构建产物（gitignore），**不要手改**；只改 `src/**`，然后重新 `pnpm build`                                                                                                                 |
 
 阶段 2 起**没有注入链**：划词卡、标注层、学习页都在同一个 bundle 里用 `import` 组装，
 `apply()` 里 `ctx.effect(installWordcard)` / `ctx.effect(installAnnotate)` 装卸，
 不存在「脚本晚到 / 依赖取不到」的竞态，也就没有了「正在加载」兜底和 `window.__dwl*` 全局。
 
-**改生效范围之后怎么验**：`node --test tests/features/scope.test.mjs` 直接 import `src/client/features/core.js`（纯判定，
-IIFE，提供最小 `window` 桩），从 `window.__dwlCore` 取**真实函数**求值（不是复制一份逻辑），覆盖
-「对话正文该生效」与「左栏/右栏/对话面板根不该生效」两组。真机验证见下面「怎么确认划词范围生效」。
+**改生效范围之后怎么验**：`node --test tests/features/scope.test.mjs` 直接 import
+`src/client/features/core.js`（纯判定模块）和 `annotate` 的 `internals`，
+用真实模块导出的函数/名单求值（不是复制一份逻辑），覆盖「对话正文该生效」与
+「左栏/右栏/对话面板根不该生效」两组。真机验证见下面「怎么确认划词范围生效」。
 
-**改了 `lib/` 怎么不重启就生效**（2026-11-04 实测有效）：往 profile 的
-`cordis.patch.yml` 末尾追加一行注释（内容随便，只要文件变了），HMR 会重排一次 profile，
-把**这个链接包里改动过的模块**一起换掉；约 8 秒后 `apply()` 重跑、路由重新挂上。
-判据：`POST /dsh-word-learn/<新路由>` 返回 **401**（栅栏）说明路由已挂上；
-返回 **404/405** 说明还是旧代码。没生效就再追加一行注释等一次。
+**改了 `src/host/**` 怎么不重启就生效**：先 `pnpm build` 产出新的 `lib/host/**`，然后重挂插件。
+往 profile 的 `cordis.patch.yml` 末尾追加一行注释（内容随便，只要文件变了）会让 HMR 重排
+profile、尽量换掉链接包里改动过的模块 —— 这个办法在 `lib/*.mjs` 时代实测过；宿主源码迁到
+`src/host/**`、产物变成 `lib/host/**` 之后没有复测，**稳妥做法还是重挂插件或重启宿主**。
+判据：`POST /dsh-word-learn/<新路由>` 返回 401/403（信任栅栏）说明新代码已挂上；
+返回 404/405 说明还是旧代码。
 
 旧办法：用 `plugin_manager` 把本插件关掉再打开（`set_plugin` target 是 loader 条目 id
-`include:dsh-word-learn`），关→开各一次。它能重跑 `apply()`，但换不换掉已缓存的模块
-取决于重排时的文件比对，不如上面那条直给。
+`include:dsh-word-learn`），关→开各一次能重跑 `apply()`。
 
 ⚠️ **首次给插件加 `dsh.client` 段必须重启宿主**：`dsh-client-modules` 会把
 "这个包不是 client 包"的否定结论缓存起来，HMR 不刷新该缓存。重启一次之后，
-改 `dashboard.js` 就恢复 mtime 热重载。
+改 `src/client/**` 就恢复 mtime 热重载。
 
 **怎么确认学习页挂上了**（别按直觉拼 URL）：看 `__DSH_BOOT__.entries` 里有没有
 `dsh-word-learn` —— 这是权威信号。有的话，用清单里的 `url` 字段去取脚本，
