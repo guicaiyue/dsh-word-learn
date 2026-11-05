@@ -1,32 +1,31 @@
-/* 生效范围（只认对话正文）的回归测试。
+/* 生效范围（只认对话正文）、排除范围、语音降级的回归测试。
  *
- * 不重复实现被测逻辑：直接从 assets/wordcard.js 里**切出真实源码**的
- * SCOPE_SELECTOR / inConversation 两个定义来求值，再用一个极小的 DOM 桩
- * 跑断言。改了前端判定而忘了改这里，测试会立刻红。
+ * 不重复实现被测逻辑：用 vm 整文件加载 assets/core.js（浏览器 IIFE），从
+ * window.__dwlCore 取真实函数，再用极小的 DOM 桩跑断言。改了 core.js 而忘了
+ * 改这里，测试会立刻红；wordcard.js 是否仍从 core.js 取用也有静态断言兜着。
  *
  * 跑法：node scripts/test-scope.mjs
  */
 import fs from 'node:fs'
 import path from 'node:path'
+import vm from 'node:vm'
 import { fileURLToPath } from 'node:url'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
-const SRC = fs.readFileSync(path.join(HERE, '..', 'assets', 'wordcard.js'), 'utf8')
+const CORE_SRC = fs.readFileSync(path.join(HERE, '..', 'assets', 'core.js'), 'utf8')
+const CARD_SRC = fs.readFileSync(path.join(HERE, '..', 'assets', 'wordcard.js'), 'utf8')
 
-// ---- 从真实源码里切出被测定义 -------------------------------------------
-function slice(startMarker, endMarker, label) {
-  const start = SRC.indexOf(startMarker)
-  if (start < 0) throw new Error(`找不到 ${label} 的起点，源码结构变了`)
-  const end = SRC.indexOf(endMarker, start)
-  if (end < 0) throw new Error(`找不到 ${label} 的终点，源码结构变了`)
-  return SRC.slice(start, end)
+// ---- 用 vm 整文件加载 core.js（浏览器 IIFE）-------------------------------
+/** core.js 只依赖 window（语音模块走 window.__dwlVoice）；document 留空桩。 */
+function loadCore(win = {}) {
+  const sandbox = { window: win, document: {}, console }
+  vm.createContext(sandbox)
+  vm.runInContext(CORE_SRC, sandbox, { filename: 'assets/core.js' })
+  if (!win.__dwlCore) throw new Error('core.js 没有暴露 window.__dwlCore')
+  return win.__dwlCore
 }
 
-const scopeSrc =
-  slice('const SCOPE_SELECTOR', '/** 选区是否', 'SCOPE_SELECTOR + inConversation') +
-  '\nreturn { SCOPE_SELECTOR, inConversation }'
-
-const { SCOPE_SELECTOR, inConversation } = new Function(scopeSrc)()
+const { SCOPE_SELECTOR, EXCLUDED_SELECTOR, inConversation, inEditable } = loadCore()
 
 // ---- 极小的 DOM 桩 -------------------------------------------------------
 /** 造一个元素；attrs 是它自己带的 data 属性集合。 */
@@ -105,13 +104,6 @@ check('裸对象（无 parentElement / closest）', inConversation({ nodeType: 3
 
 console.log('划词排除范围（代码 / 链接 / 表格 / 按钮）')
 // 2026-11-04 审查修复：这些容器里划词以前会照常入库，把标识符与 UI 文案塞进生词本。
-const exSrc =
-  slice(
-    'const EXCLUDED_SELECTOR',
-    '  // ------------------------------------------------------- 生效范围',
-    'EXCLUDED_SELECTOR + inEditable',
-  ) + '\nreturn { EXCLUDED_SELECTOR, inEditable }'
-const { EXCLUDED_SELECTOR, inEditable } = new Function(exSrc)()
 function tagged(tag) {
   return {
     nodeType: 1,
@@ -133,23 +125,11 @@ check('普通段落仍然弹卡', inEditable(tagged('p')), false)
 check('inEditable(null) 不抛错', inEditable(null), false)
 
 console.log('语音模块（voice.js）对接')
-// 直接从真实源码里切出语音辅助函数求值：改了 wordcard 的降级逻辑这里会立刻红。
-const voiceSrc =
-  slice(
-    "const VOICE_MISSING = '语音模块未加载，刷新页面重试'",
-    'function wantAccent() {',
-    '语音对接辅助函数',
-  ) +
-  '\nreturn { VOICE_MISSING, voiceModule, voiceButtonAttrs, voiceErrorText, isAbort, stopSpeaking, speakText }'
-
-function makeVoiceApi(win, els) {
-  return new Function('window', 'els', voiceSrc)(win, els)
-}
+// 直接从 core.js 取降级函数求值：改了语音降级逻辑这里会立刻红。
 
 // —— 没有 __dwlVoice（注入失败 / 旧页面）：一律降级，不抛异常，按钮禁用
 {
-  const els = { sound: { disabled: false } }
-  const api = makeVoiceApi({}, els)
+  const api = loadCore()
   const noModuleProbe = api.speakText('adapt', 'us')
   check('没有模块时 speakText 返回 Promise', typeof noModuleProbe.then, 'function')
   let rejected = null
@@ -190,7 +170,7 @@ function makeVoiceApi(win, els) {
       calls.stop += 1
     },
   }
-  const api = makeVoiceApi({ __dwlVoice: fake }, {})
+  const api = loadCore({ __dwlVoice: fake })
   let ok = false
   await api.speakText('adapt', 'uk').then(() => {
     ok = true
@@ -202,10 +182,21 @@ function makeVoiceApi(win, els) {
   check('有模块时按钮不置灰', api.voiceButtonAttrs('朗读').includes('disabled'), false)
 }
 
-// —— 静态检查：服务端发音链路已经删干净
-check('wordcard 不再引用服务端发音路由', /tts/i.test(SRC), false)
-check('wordcard 不再自己 new Audio', /new Audio\(/.test(SRC), false)
-check('wordcard 用 __dwlVoice 朗读', SRC.includes('__dwlVoice'), true)
+// —— 幂等守卫：同一页面重复注入不重建 core（已持有的引用不会失效）
+{
+  const win = {}
+  const once = loadCore(win)
+  const twice = loadCore(win)
+  check('重复注入复用同一个 __dwlCore', once === twice, true)
+}
+
+// —— 静态检查：判定/语音只维护一份，wordcard 从 core.js 取用
+check('wordcard 不再引用服务端发音路由', /tts/i.test(CARD_SRC), false)
+check('wordcard 不再自己 new Audio', /new Audio\(/.test(CARD_SRC), false)
+check('core.js 用 __dwlVoice 朗读', CORE_SRC.includes('__dwlVoice'), true)
+check('wordcard 从 window.__dwlCore 取判定', CARD_SRC.includes('window.__dwlCore'), true)
+check('wordcard 不再重复实现 inConversation', /function inConversation/.test(CARD_SRC), false)
+check('wordcard 不再重复实现 inEditable', /function inEditable/.test(CARD_SRC), false)
 
 console.log('')
 if (failed) {
