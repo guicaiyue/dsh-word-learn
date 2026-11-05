@@ -37,7 +37,7 @@ module.exports = {
   ],
   options: {
     doNotFollow: { path: 'node_modules' },
-    exclude: { path: '(node_modules|^dist/|\\.scratch)' },
+    exclude: { path: '(node_modules|^dist/|^lib/host/|\\.scratch)' },
     tsPreCompilationDeps: true,
     enhancedResolveOptions: {
       exportsFields: ['exports'],

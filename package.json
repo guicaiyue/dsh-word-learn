@@ -45,7 +45,7 @@
     "format:check": "prettier --check .",
     "deps:check": "depcruise -C --config .dependency-cruiser.cjs lib src",
     "test:unit": "node --test \"tests/**/*.test.mjs\"",
-    "test:unit:coverage": "node --experimental-test-coverage --test-coverage-include=lib/http.mjs --test-coverage-include=lib/host/text.js --test-coverage-include=lib/models.mjs --test-coverage-lines=95 --test-coverage-branches=85 --test-coverage-functions=95 --test \"tests/**/*.test.mjs\"",
+    "test:unit:coverage": "node --experimental-test-coverage --test-coverage-include=lib/host/http.js --test-coverage-include=lib/host/text.js --test-coverage-include=lib/host/models.js --test-coverage-lines=95 --test-coverage-branches=85 --test-coverage-functions=95 --test \"tests/**/*.test.mjs\"",
     "test:component": "vitest run",
     "test:legacy": "node scripts/test-all.mjs",
     "test": "pnpm test:unit && pnpm test:unit:coverage && pnpm test:component && pnpm test:legacy",

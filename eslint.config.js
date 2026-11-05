@@ -57,6 +57,7 @@ export default [
       'lab/**',
       'locale/**',
       'dist/**',
+      'lib/host/**',
       '**/*.min.js',
       // TS/TSX 由 tsc（tsconfig.json 的 noUnusedLocals 等）负责类型与未用检查；
       // ESLint 没有配 @typescript-eslint parser，强行 lint 只会拿到「0 条规则」的假绿。
