@@ -18,11 +18,27 @@
   if (window.__dshWordLearn) return
   window.__dshWordLearn = true
 
+  // 生效范围 / 排除范围 / 语音降级这些纯判定集中在 core.js（注入行里排在前面）。
+  // 万一顺序异常（旧页面缓存了旧注入行）就静默不装卡片：页面其它功能不受影响，
+  // 硬刷新拿到新注入行即恢复 —— 绝不在这里重复实现一份判定，避免口径漂移。
+  const core = window.__dwlCore
+  if (!core) return
+  const {
+    inConversation,
+    inEditable,
+    VOICE_MISSING,
+    voiceModule,
+    voiceButtonAttrs,
+    voiceErrorText,
+    isAbort,
+    stopSpeaking,
+    speakText,
+  } = core
+
   const API = {
     lookup: '/dsh-word-learn/lookup',
     save: '/dsh-word-learn/save',
     list: '/dsh-word-learn/list',
-    stats: '/dsh-word-learn/stats',
     update: '/dsh-word-learn/update',
     remove: '/dsh-word-learn/remove',
     translate: '/dsh-word-learn/translate',
@@ -761,80 +777,8 @@
   }
 
   // ------------------------------------------------------------ 发音
-  //
-  // 发音全部交给浏览器自带语音：注入的 voice.js 提供 window.__dwlVoice
-  // （speechSynthesis，Windows 上就是系统里那套 Microsoft 音色）。
-  //
-  // 为什么不用服务端发音 / 有道：用户明确只要浏览器自带的免费前端语音 ——
-  // 不需要 key、不需要网络，单词和整句都能读，非安全上下文（http://IP）也能用；
-  // 服务端那套要网络 + 密钥 + 磁盘缓存，收益只是"跨浏览器音色一致"，不值得。
-  //
-  // 本文件只负责按钮状态与失败提示；选音色、切句、取消、并发打断都在 voice.js 里。
-
-  /** 语音模块没加载成功时的统一提示（注入失败 / 旧页面残留）。 */
-  const VOICE_MISSING = '语音模块未加载，刷新页面重试'
-
-  /** 取注入的语音模块；缺失或形状不对时返回 null（后续一律降级，不抛错）。 */
-  function voiceModule() {
-    const mod = typeof window !== 'undefined' ? window.__dwlVoice : null
-    return mod && typeof mod.speak === 'function' ? mod : null
-  }
-
-  /** 给按钮加 title / disabled：语音不可用时置灰，别让用户点了没反应。 */
-  function voiceButtonAttrs(title) {
-    if (voiceModule()) return ' title="' + title + '"'
-    return ' title="' + VOICE_MISSING + '" disabled aria-disabled="true"'
-  }
-
-  /** 把 voice.js 的失败码翻成一句人话（它抛的 Error 带 code）。 */
-  function voiceErrorText(err) {
-    const code = String((err && err.code) || '').toUpperCase()
-    if (code === 'UNSUPPORTED') return '这个浏览器不支持语音合成'
-    if (code === 'NO_VOICE') return '系统里没有可用的英文音色，检查系统语音包'
-    if (code === 'EMPTY_TEXT') return '没有要读的内容'
-    if (code === 'TIMEOUT') return '系统语音没有响应，再点一次试试'
-    if (code === 'SYNTH_FAILED') return '系统语音调用失败，请重试'
-    return (err && err.message) || '语音合成失败'
-  }
-
-  /** 被"重新点一次 / 换词"打断不算失败，不要弹错误提示。 */
-  function isAbort(err) {
-    if (!err) return false
-    const code = String(err.code || '').toUpperCase()
-    return code === 'ABORTED' || code === 'interrupted' || code === 'canceled'
-  }
-
-  /** 停掉当前朗读（模块缺失时静默）。 */
-  function stopSpeaking() {
-    const mod = voiceModule()
-    if (!mod || typeof mod.stop !== 'function') return
-    try {
-      mod.stop()
-    } catch (err) {}
-  }
-
-  /** 朗读一段英文，读完 resolve；失败 reject（带 code，便于提示）。 */
-  function speakText(text, accent) {
-    const content = String(text || '').trim()
-    if (!content) {
-      const err = new Error('没有要读的内容')
-      err.code = 'EMPTY_TEXT'
-      return Promise.reject(err)
-    }
-    const mod = voiceModule()
-    if (!mod) {
-      const err = new Error(VOICE_MISSING)
-      err.code = 'NO_MODULE'
-      return Promise.reject(err)
-    }
-    // 播放中再点一次 / 换词：先停上一条再读，避免两条叠在一起
-    stopSpeaking()
-    try {
-      return Promise.resolve(mod.speak(content, { accent: accent === 'uk' ? 'uk' : 'us' }))
-    } catch (err) {
-      return Promise.reject(err)
-    }
-  }
+  // 降级辅助（voiceModule / speakText / 失败提示）在 core.js，与 voice.js 的契约
+  // 只维护一处；这里只剩"当前口音"这种卡片私有状态。
 
   function wantAccent() {
     return state.accent === 'uk' ? 'uk' : 'us'
@@ -1110,42 +1054,8 @@
     timer = setTimeout(check, DEBOUNCE_MS)
   }
 
-  // 划词卡只服务自然语言。代码块、行内 code、链接文字、文件名芯片、表格、
-  // 按钮、其它插件的弹窗里选中的"词"多半是标识符或 UI 文案，收进生词本只会污染。
-  // 与 annotate.js 的容器黑名单保持一致（两边同一个判断口径）。
-  const EXCLUDED_SELECTOR =
-    'input,textarea,select,[contenteditable=""],[contenteditable="true"],.dwl-card,' +
-    'pre,code,.md-code-block,a,button,table,[data-ref-chip],[role="dialog"],[role="menu"],[role="tooltip"]'
-
-  function inEditable(el) {
-    if (!el || !el.closest) return false
-    return !!el.closest(EXCLUDED_SELECTOR)
-  }
-
-  // ------------------------------------------------------- 生效范围：只认对话正文
-  //
-  // 用户要求：划词卡片只对 DSH 的**对话页面**有效，左侧栏、右侧栏、轨迹
-  // （Trajectory）页、英语学习看板等一律不管。
-  //
-  // 判定锚点用 `[data-chat-flow]` —— 这是 `dsh-client-ui-chat` 渲染 Chat 视图
-  // 正文时挂的标记（0.2.1-rc.2 的 lib/client.js 里 8 处）。为什么不用看起来
-  // 更"官方"的 `[data-conversation-content]`：那个是**整个对话面板**的根，
-  // 轨迹视图作为 `conversation.view` 槽位渲染在它**内部**，用它当范围等于把
-  // 轨迹页也放进来。`data-chat-flow` 只在 Chat 视图的正文列上，轨迹页没有。
-  //
-  // 严格模式：锚点找不到就完全不响应。DSH 升级换掉这个标记时，卡片会静默
-  // 失效，而不是退回"全页面乱弹"——后者正是用户这次要消掉的行为。
-  //
-  // 注意不能用「两端落在同一个 data-chat-flow」判定：助手回复里的步骤过程
-  // 区块（`data-step-process-content`）自己也是一个 data-chat-flow，嵌在外层
-  // 之内，跨它选中时两端会是不同的元素。所以只要求两端各自**有**这样的祖先。
-  const SCOPE_SELECTOR = '[data-chat-flow]'
-
-  function inConversation(node) {
-    const el = node && node.nodeType === 1 ? node : node && node.parentElement
-    if (!el || !el.closest) return false
-    return !!el.closest(SCOPE_SELECTOR)
-  }
+  // 排除范围（代码块 / 链接 / 表格 / 按钮…）与生效范围（只认 data-chat-flow）
+  // 的判定都在 core.js：wordcard 与测试共用同一份口径，这里不再重复实现。
 
   /** 选区是否"像英文内容"：至少有一个拉丁字母，且不是纯中文。 */
   function looksEnglish(text) {

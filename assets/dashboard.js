@@ -4421,6 +4421,18 @@ body[data-ds-dark-theme] .dwl-modal{background:var(--dsw-alias-bg-layer-1,#24242
       }, 'dsh-word-learn: page styles')
     }
 
-    return { inject, apply }
+    // 单测入口：整文件加载本模块后从这里取组件与纯函数。
+    // 为什么要有：测试过去按函数名切源码再 new Function，注释/解构一变就碎。
+    // DSH 只读 inject/apply，多一个键不影响加载（见 tests/helpers/dashboard.mjs）。
+    const __test__ = {
+      HoverWord,
+      WritePanel,
+      SettingsView,
+      normalizeSpelling,
+      editDistance,
+      spellCheck,
+    }
+
+    return { inject, apply, __test__ }
   },
 })
