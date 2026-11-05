@@ -188,7 +188,7 @@ describe('annotateWordList：在学词表契约（临时 DSH_HOME）', () => {
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'dwl-annotate-'))
     // store.mjs 在模块加载时读 DSH_HOME，所以必须先设环境变量再动态 import。
     process.env.DSH_HOME = tmp
-    const storeUrl = pathToFileURL(path.join(ROOT, 'lib', 'store.mjs')).href
+    const storeUrl = pathToFileURL(path.join(ROOT, 'lib', 'host', 'store.js')).href
     const annotateUrl = pathToFileURL(path.join(ROOT, 'lib', 'host', 'annotate.js')).href
     const { Store } = await import(storeUrl)
     const { annotateWordList } = await import(annotateUrl)

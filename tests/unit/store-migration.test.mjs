@@ -73,7 +73,7 @@ INSERT INTO words (word, created_at) VALUES ('legacyword', 1700000000000);
 
   // 2. 让 Store 打开的是这个临时库（schema.mjs 在 import 时读 DSH_HOME，所以先设再动态 import）。
   process.env.DSH_HOME = home
-  const { Store } = await import('../../lib/store.mjs')
+  const { Store } = await import('../../lib/host/store.js')
   const store = new Store()
   try {
     assert.equal(store.open(), true, '老库应能打开（索引若先于 migrate 执行就会在这里失败）')

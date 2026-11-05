@@ -4,7 +4,7 @@
 // `node --test tests/` 不会把它当用例执行。
 //
 // 关键时序：store.mjs 在 **import 那一刻**就把 DSH_HOME 换算成库路径，
-// 所以调用方必须先 `useTempHome()`，再 `await import('../../lib/store.mjs')`
+// 所以调用方必须先 `useTempHome()`，再 `await import('../../lib/host/store.js')`
 // （本文件故意不 import store，避免把这个时序藏起来）。绝不碰真实用户库。
 
 import fs from 'node:fs'
@@ -32,7 +32,7 @@ export function useTempHome(prefix = 'dwl-unit-') {
 
 /** 打开一个真实 Store（调用前必须已 useTempHome），失败直接抛，别让测试带病跑。 */
 export async function openTempStore() {
-  const { Store } = await import('../../lib/store.mjs')
+  const { Store } = await import('../../lib/host/store.js')
   const store = new Store()
   if (!store.open()) throw new Error('打不开临时用户库：' + store.error)
   return store

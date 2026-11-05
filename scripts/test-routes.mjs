@@ -620,7 +620,7 @@ for (const p of READ_ONLY_ROUTES) {
   check(`${p} GET 不被 405 拦`, r.code !== 405, r.code)
 }
 console.log('\n=== task-6：500 响应不含绝对路径 ===')
-const { Store } = await import('../lib/store.mjs')
+const { Store } = await import('../lib/host/store.js')
 
 // ① 没有自带 try/catch 的 /list：靠 registerRoute 统一兜底
 const realList = Store.prototype.list

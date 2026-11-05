@@ -23,7 +23,7 @@ import path from 'node:path'
 const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'dwl-r5-test-'))
 process.env.DSH_HOME = tmpHome
 
-const { Store } = await import('../lib/store.mjs')
+const { Store } = await import('../lib/host/store.js')
 const { buildRecap, submitRecap, senseMap } = await import('../lib/host/r5.js')
 const { dayStart } = await import('../lib/host/schedule.js')
 

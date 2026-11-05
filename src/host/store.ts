@@ -25,10 +25,12 @@
 import fs from 'node:fs'
 import { createRequire } from 'node:module'
 
-import { DATA_DIR, DB_FILE, INDEXES, SCHEMA, migrate } from './store/schema.mjs'
-import * as review from './store/review.mjs'
-import * as settings from './store/settings.mjs'
-import * as words from './store/words.mjs'
+import type { DatabaseSync } from 'node:sqlite'
+
+import { DATA_DIR, DB_FILE, INDEXES, SCHEMA, migrate } from './store/schema.js'
+import * as review from './store/review.js'
+import * as settings from './store/settings.js'
+import * as words from './store/words.js'
 
 const require = createRequire(import.meta.url)
 
@@ -36,6 +38,10 @@ const require = createRequire(import.meta.url)
 const RETRY_MS = 10_000
 
 export class Store {
+  db: DatabaseSync | null
+  error: string
+  errorAt: number
+
   constructor() {
     this.db = null
     this.error = ''
@@ -50,19 +56,19 @@ export class Store {
    * 钉死，此后整个生命周期所有读写都 500，用户只能重启宿主 —— 表现为"插件突然全坏了"。
    * 现在失败后按 RETRY_MS 退避重试，成功即清 error。
    */
-  open() {
+  open(): boolean {
     if (this.db) return true
     if (this.error && Date.now() - (this.errorAt || 0) < RETRY_MS) return false
     try {
       fs.mkdirSync(DATA_DIR, { recursive: true })
       const { DatabaseSync } = require('node:sqlite')
-      this.db = new DatabaseSync(DB_FILE)
+      this.db = new DatabaseSync(DB_FILE) as DatabaseSync
       // 顺序不能换：老库缺列时先建索引会直接抛错，migrate 就没机会补列。
       this.db.exec(SCHEMA)
       migrate(this.db)
       this.db.exec(INDEXES)
       return true
-    } catch (err) {
+    } catch (err: any) {
       this.error = `打不开用户数据库：${(err && err.message) || err}`
       this.errorAt = Date.now()
       try {
@@ -74,107 +80,107 @@ export class Store {
 
   // ---------------------------------------------------------------- 生词本
 
-  touch(info, sentence) {
+  touch(info: words.WordInfo, sentence: unknown) {
     return words.touch(this, info, sentence)
   }
 
-  get(word) {
+  get(word: unknown) {
     return words.get(this, word)
   }
 
-  getById(id) {
+  getById(id: number) {
     return words.getById(this, id)
   }
 
-  list(options) {
+  list(options?: words.WordListOptions) {
     return words.list(this, options)
   }
 
-  update(word, patch) {
+  update(word: unknown, patch?: words.WordPatch) {
     return words.update(this, word, patch)
   }
 
-  setMeta(word, meta) {
+  setMeta(word: unknown, meta: unknown) {
     return words.setMeta(this, word, meta)
   }
 
-  getMeta(word) {
+  getMeta(word: unknown) {
     return words.getMeta(this, word)
   }
 
-  getMetaBatch(words_) {
+  getMetaBatch(words_: unknown[]) {
     return words.getMetaBatch(this, words_)
   }
 
   // ---------------------------------------------------------------- 义项材料
 
-  setSenseMeta(word, meta) {
+  setSenseMeta(word: unknown, meta: words.SenseMeta) {
     return words.setSenseMeta(this, word, meta)
   }
 
-  getSenseMeta(word) {
+  getSenseMeta(word: unknown) {
     return words.getSenseMeta(this, word)
   }
 
-  latestSentence(word) {
+  latestSentence(word: unknown) {
     return words.latestSentence(this, word)
   }
 
-  randomTranslations(excludeWord, count) {
+  randomTranslations(excludeWord: unknown, count?: number) {
     return words.randomTranslations(this, excludeWord, count)
   }
 
-  remove(word) {
+  remove(word: unknown) {
     return words.remove(this, word)
   }
 
   // ---------------------------------------------------------------- 统计与看板
 
-  stats() {
+  stats(): review.StatsResult {
     return review.stats(this)
   }
 
-  dashboard(options) {
+  dashboard(options?: { now?: number; forecastDays?: number }): review.DashboardResult {
     return review.dashboard(this, options)
   }
 
   // ---------------------------------------------------------------- 补记
 
-  logRepair(entry) {
+  logRepair(entry: review.RepairEntry) {
     return review.logRepair(this, entry)
   }
 
-  openRepairDebt(cardId) {
+  openRepairDebt(cardId: unknown) {
     return review.openRepairDebt(this, cardId)
   }
 
-  clearRepairDebt(wordId) {
+  clearRepairDebt(wordId: unknown) {
     return review.clearRepairDebt(this, wordId)
   }
 
-  getRepairDebt(wordId) {
+  getRepairDebt(wordId: unknown) {
     return review.getRepairDebt(this, wordId)
   }
 
-  openRepairDebts(limit) {
+  openRepairDebts(limit?: number) {
     return review.openRepairDebts(this, limit)
   }
 
   // ---------------------------------------------------------------- 设置
 
-  getSetting(key) {
+  getSetting(key: string) {
     return settings.getSetting(this, key)
   }
 
-  setSetting(key, value) {
+  setSetting(key: string, value: unknown) {
     return settings.setSetting(this, key, value)
   }
 
-  deleteSetting(key) {
+  deleteSetting(key: string) {
     return settings.deleteSetting(this, key)
   }
 
-  close() {
+  close(): void {
     if (this.db) {
       try {
         this.db.close()

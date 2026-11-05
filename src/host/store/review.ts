@@ -3,19 +3,120 @@
 // 从 lib/store.mjs 拆出来的第二等职责：review_log / repair_log / repair_debt
 // 的写入与聚合读取。注意这里**不算 FSRS**：排期计算在 lib/schedule.mjs，
 // 本文件只读卡片与日志的既有状态并把口径统一在一处。
-import { dayStart } from '../host/schedule.js'
-import { DB_FILE } from './schema.mjs'
+import type { DatabaseSync } from 'node:sqlite'
+
+import { dayStart } from '../schedule.js'
+import { DB_FILE } from './schema.js'
+
+/** 统计/看板/补记用到的最小 Store 能力（lib/store.mjs 的 Store 满足它）。 */
+export interface ReviewStoreLike {
+  open(): boolean
+  db?: DatabaseSync | null
+  error: string
+}
+
+/** 词频档位统计。 */
+export type StatsResult =
+  | { ok: false; error: string }
+  | {
+      ok: true
+      total: number
+      starred: number
+      contexts: number
+      byTier: Record<string, unknown>
+      dbPath: string
+    }
+
+/** 最难的词（lapses 最多）。 */
+export interface HardestWord {
+  word: string
+  translation: string | null
+  freq_tier: string | null
+  lapses: number
+  track: string
+  suspended: number | null
+}
+
+/** 最近加入的词。 */
+export interface RecentWord {
+  word: string
+  translation: string | null
+  freq_tier: string | null
+  seen_at: number | null
+  seen_count: number | null
+}
+
+/** 看板的全部聚合数据。 */
+export type DashboardResult =
+  | { ok: false; error: string }
+  | {
+      ok: true
+      generatedAt: number
+      words: {
+        total: number
+        graduated: number
+        starred: number
+        byTier: Array<{ tier: unknown; n: unknown }>
+      }
+      cards: {
+        total: number
+        fresh: number
+        suspended: number
+        learning: number
+        review: number
+        relearning: number
+        started: number
+      }
+      queue: { dueToday: number; dueTomorrow: number; reviewedToday: number }
+      forecast: Array<{ day: number; date: number; count: number }>
+      activity: Array<{ day: number; date: number; count: number }>
+      ability: Record<string, number[]>
+      accuracy: { total: number; correct: number; rate: number; dist: Record<number, number> }
+      hardest: HardestWord[]
+      recent: RecentWord[]
+      since: number | null
+      dbPath: string
+    }
+
+/** 一次补记事件。 */
+export interface RepairEntry {
+  wordId?: number
+  cardId?: number | null
+  stage?: string
+  ok?: boolean | null
+  guess?: unknown
+  elapsedMs?: unknown
+}
+
+/** 一笔未清的补记债（含词面与最近原句）。 */
+export interface RepairDebtRow {
+  word_id: number
+  card_id: number | null
+  track: string
+  opened_at: number
+  cleared_at: number | null
+  tries: number
+  word: string
+  phonetic: string | null
+  translation: string | null
+  sentence: string | null
+  [key: string]: unknown
+}
 
 /** 按档位统计，用于复习页的分级展示。 */
-export function stats(store) {
+export function stats(store: ReviewStoreLike): StatsResult {
   if (!store.open()) return { ok: false, error: store.error }
-  const db = store.db
-  const total = db.prepare('SELECT COUNT(*) AS n FROM words').get().n
+  const db = store.db!
+  const total = (db.prepare('SELECT COUNT(*) AS n FROM words').get() as { n: number }).n
   const byTier = db
     .prepare('SELECT freq_tier AS tier, COUNT(*) AS n FROM words GROUP BY freq_tier')
-    .all()
-  const contexts = db.prepare('SELECT COUNT(*) AS n FROM contexts').get().n
-  const starred = db.prepare('SELECT COUNT(*) AS n FROM words WHERE starred = 1').get().n
+    .all() as Array<{ tier: unknown; n: unknown }>
+  const contexts = (db.prepare('SELECT COUNT(*) AS n FROM contexts').get() as { n: number }).n
+  const starred = (
+    db.prepare('SELECT COUNT(*) AS n FROM words WHERE starred = 1').get() as {
+      n: number
+    }
+  ).n
   return {
     ok: true,
     total,
@@ -36,19 +137,28 @@ export function stats(store) {
  * 比如"今日待复习"和"进度里的已学"如果各算各的，页面上就会
  * 出现自相矛盾的数字，而用户只会觉得"这插件在骗我"。
  */
-export function dashboard(store, { now = Date.now(), forecastDays = 14 } = {}) {
+export function dashboard(
+  store: ReviewStoreLike,
+  { now = Date.now(), forecastDays = 14 }: { now?: number; forecastDays?: number } = {},
+): DashboardResult {
   if (!store.open()) return { ok: false, error: store.error }
-  const db = store.db
+  const db = store.db!
 
   // ── 词条总量与分档
-  const total = db.prepare('SELECT COUNT(*) AS n FROM words').get().n
-  const graduated = db.prepare('SELECT COUNT(*) AS n FROM words WHERE graduated = 1').get().n
-  const starred = db.prepare('SELECT COUNT(*) AS n FROM words WHERE starred = 1').get().n
+  const total = (db.prepare('SELECT COUNT(*) AS n FROM words').get() as { n: number }).n
+  const graduated = (
+    db.prepare('SELECT COUNT(*) AS n FROM words WHERE graduated = 1').get() as { n: number }
+  ).n
+  const starred = (
+    db.prepare('SELECT COUNT(*) AS n FROM words WHERE starred = 1').get() as {
+      n: number
+    }
+  ).n
   const byTier = db
     .prepare(
       'SELECT freq_tier AS tier, COUNT(*) AS n FROM words GROUP BY freq_tier ORDER BY n DESC',
     )
-    .all()
+    .all() as unknown as Array<{ tier: unknown; n: unknown }>
 
   // ── 排期状态
   const cardAgg = db
@@ -62,7 +172,14 @@ export function dashboard(store, { now = Date.now(), forecastDays = 14 } = {}) {
          SUM(CASE WHEN state = 3 THEN 1 ELSE 0 END) AS relearning
        FROM cards`,
     )
-    .get()
+    .get() as unknown as {
+    total: number
+    suspended: number
+    fresh: number
+    learning: number
+    review: number
+    relearning: number
+  }
 
   const todayEnd = dayStart(1, now)
   const todayStart = dayStart(0, now)
@@ -73,57 +190,67 @@ export function dashboard(store, { now = Date.now(), forecastDays = 14 } = {}) {
   // 所以 `cards` 里是 2 行。直接拿"reps>0 的卡片数"当进度分子，
   // 除以"词数"就会超过 100%（实测出现过 135%）—— 单位不一致。
   // 进度必须两边都按**词**算。
-  const startedWords = db
-    .prepare(
-      `SELECT COUNT(DISTINCT c.word_id) AS n FROM cards c
+  const startedWords = (
+    db
+      .prepare(
+        `SELECT COUNT(DISTINCT c.word_id) AS n FROM cards c
         WHERE c.reps > 0`,
-    )
-    .get().n
+      )
+      .get() as { n: number }
+  ).n
 
   // 今日待复习：已经学过（reps>0）且已到期。
   //
   // 按**词**去重：两条线同一天到期时，队列一轮只出一次（见 schedule.dueQueue），
   // 这里数卡片会让"今日待复习"比实际要多一倍。
-  const dueToday = db
-    .prepare(
-      `SELECT COUNT(DISTINCT c.word_id) AS n FROM cards c JOIN words w ON w.id = c.word_id
+  const dueToday = (
+    db
+      .prepare(
+        `SELECT COUNT(DISTINCT c.word_id) AS n FROM cards c JOIN words w ON w.id = c.word_id
         WHERE c.suspended = 0 AND w.graduated = 0 AND c.reps > 0 AND c.due < ?`,
-    )
-    .get(todayEnd).n
+      )
+      .get(todayEnd) as { n: number }
+  ).n
 
   // 今日已复习：今天答过几次
-  const reviewedToday = db
-    .prepare(
-      'SELECT COUNT(*) AS n FROM review_log WHERE evidence = ? AND created_at >= ? AND created_at < ?',
-    )
-    .get('answer', todayStart, todayEnd).n
+  const reviewedToday = (
+    db
+      .prepare(
+        'SELECT COUNT(*) AS n FROM review_log WHERE evidence = ? AND created_at >= ? AND created_at < ?',
+      )
+      .get('answer', todayStart, todayEnd) as { n: number }
+  ).n
 
   // 明日到期（严格落在明天这一天内），同样按词去重
-  const dueTomorrow = db
-    .prepare(
-      `SELECT COUNT(DISTINCT c.word_id) AS n FROM cards c JOIN words w ON w.id = c.word_id
+  const dueTomorrow = (
+    db
+      .prepare(
+        `SELECT COUNT(DISTINCT c.word_id) AS n FROM cards c JOIN words w ON w.id = c.word_id
         WHERE c.suspended = 0 AND w.graduated = 0 AND c.reps > 0
           AND c.due >= ? AND c.due < ?`,
-    )
-    .get(todayEnd, dayStart(2, now)).n
+      )
+      .get(todayEnd, dayStart(2, now)) as { n: number }
+  ).n
 
   // 未来 N 天预测曲线
-  const forecast = []
+  const forecast: Array<{ day: number; date: number; count: number }> = []
   for (let i = 0; i < forecastDays; i++) {
     const from = dayStart(i, now)
     const to = dayStart(i + 1, now)
-    const n = db
-      .prepare(
-        `SELECT COUNT(*) AS n FROM cards c JOIN words w ON w.id = c.word_id
+    const n = (
+      db
+        .prepare(
+          `SELECT COUNT(*) AS n FROM cards c JOIN words w ON w.id = c.word_id
           WHERE c.suspended = 0 AND w.graduated = 0 AND c.reps > 0
             AND c.due >= ? AND c.due < ?`,
-      )
-      .get(from, to).n
+        )
+        .get(from, to) as { n: number }
+    ).n
     forecast.push({ day: i, date: from, count: n })
   }
 
   // ── 能力画像分布（五维各自 0-5 的直方图）
-  const ability = {}
+  const ability: Record<string, number[]> = {}
   for (const [key, col] of Object.entries({
     recognize: 'k_recognize',
     meaning: 'k_meaning',
@@ -131,22 +258,26 @@ export function dashboard(store, { now = Date.now(), forecastDays = 14 } = {}) {
     listen: 'k_listen',
     pronounce: 'k_pronounce',
   })) {
-    const rows = db.prepare(`SELECT ${col} AS v, COUNT(*) AS n FROM words GROUP BY ${col}`).all()
+    const rows = db
+      .prepare(`SELECT ${col} AS v, COUNT(*) AS n FROM words GROUP BY ${col}`)
+      .all() as unknown as Array<{ v: number | null; n: number }>
     const buckets = [0, 0, 0, 0, 0, 0]
     for (const r of rows) buckets[Math.max(0, Math.min(5, r.v || 0))] += r.n
     ability[key] = buckets
   }
 
   // ── 近 14 天每天复习量（报表条形图）
-  const activity = []
+  const activity: Array<{ day: number; date: number; count: number }> = []
   for (let i = 13; i >= 0; i--) {
     const from = dayStart(-i, now)
     const to = dayStart(-i + 1, now)
-    const n = db
-      .prepare(
-        'SELECT COUNT(*) AS n FROM review_log WHERE evidence = ? AND created_at >= ? AND created_at < ?',
-      )
-      .get('answer', from, to).n
+    const n = (
+      db
+        .prepare(
+          'SELECT COUNT(*) AS n FROM review_log WHERE evidence = ? AND created_at >= ? AND created_at < ?',
+        )
+        .get('answer', from, to) as { n: number }
+    ).n
     activity.push({ day: -i, date: from, count: n })
   }
 
@@ -155,9 +286,9 @@ export function dashboard(store, { now = Date.now(), forecastDays = 14 } = {}) {
     .prepare(
       'SELECT rating AS r, COUNT(*) AS n FROM review_log WHERE evidence = ? AND rating IS NOT NULL GROUP BY rating',
     )
-    .all('answer')
+    .all('answer') as unknown as Array<{ r: number; n: number }>
   const ratingTotal = ratingRows.reduce((s, r) => s + r.n, 0)
-  const ratingDist = { 1: 0, 2: 0, 3: 0, 4: 0 }
+  const ratingDist: Record<number, number> = { 1: 0, 2: 0, 3: 0, 4: 0 }
   for (const r of ratingRows) ratingDist[r.r] = r.n
   // 正确率口径：Good/Easy 算对，Again/Hard 算没记住。
   // 这是**我自己定的口径**，不是 FSRS 的官方指标 —— 界面上要写清楚。
@@ -171,17 +302,21 @@ export function dashboard(store, { now = Date.now(), forecastDays = 14 } = {}) {
         WHERE c.lapses > 0
         ORDER BY c.lapses DESC LIMIT 10`,
     )
-    .all()
+    .all() as unknown as HardestWord[]
 
   // ── 最近加入的词
   const recent = db
     .prepare(
       'SELECT word, translation, freq_tier, seen_at, seen_count FROM words ORDER BY seen_at DESC LIMIT 10',
     )
-    .all()
+    .all() as unknown as RecentWord[]
 
   // ── 首次使用时间（算"学了多久"）
-  const first = db.prepare('SELECT MIN(created_at) AS t FROM words').get().t
+  const first = (
+    db.prepare('SELECT MIN(created_at) AS t FROM words').get() as {
+      t: number | null
+    }
+  ).t
 
   return {
     ok: true,
@@ -216,11 +351,14 @@ export function dashboard(store, { now = Date.now(), forecastDays = 14 } = {}) {
 // ---------------------------------------------------------------- 补记
 
 /** 记一次补记事件。失败不应该影响学习流程，所以吞掉异常。 */
-export function logRepair(store, { wordId, cardId, stage, ok, guess, elapsedMs }) {
+export function logRepair(
+  store: ReviewStoreLike,
+  { wordId, cardId, stage, ok, guess, elapsedMs }: RepairEntry,
+): boolean {
   if (!store.open() || !wordId) return false
   try {
-    store.db
-      .prepare(
+    store
+      .db!.prepare(
         `INSERT INTO repair_log (word_id, card_id, stage, ok, guess, elapsed_ms, created_at)
          VALUES (?,?,?,?,?,?,?)`,
       )
@@ -240,10 +378,12 @@ export function logRepair(store, { wordId, cardId, stage, ok, guess, elapsedMs }
 }
 
 /** 按「忘了」时开一笔债。同一个词重复忘，重置 opened_at、tries 归零。 */
-export function openRepairDebt(store, cardId) {
+export function openRepairDebt(store: ReviewStoreLike, cardId: unknown): boolean {
   if (!store.open()) return false
-  const db = store.db
-  const row = db.prepare('SELECT word_id, track FROM cards WHERE id = ?').get(Number(cardId))
+  const db = store.db!
+  const row = db
+    .prepare('SELECT word_id, track FROM cards WHERE id = ?')
+    .get(Number(cardId)) as unknown as { word_id: number; track: string } | undefined
   if (!row) return false
   db.prepare(
     `INSERT INTO repair_debt (word_id, card_id, track, opened_at, cleared_at, tries)
@@ -256,26 +396,31 @@ export function openRepairDebt(store, cardId) {
 }
 
 /** 清债（R4 也过了才算）。 */
-export function clearRepairDebt(store, wordId) {
+export function clearRepairDebt(store: ReviewStoreLike, wordId: unknown): boolean {
   if (!store.open()) return false
-  store.db
-    .prepare('UPDATE repair_debt SET cleared_at = ? WHERE word_id = ? AND cleared_at IS NULL')
+  store
+    .db!.prepare('UPDATE repair_debt SET cleared_at = ? WHERE word_id = ? AND cleared_at IS NULL')
     .run(Date.now(), Number(wordId))
   return true
 }
 
 /** 取一笔债（给前端显示「今日补记 x/y」）。 */
-export function getRepairDebt(store, wordId) {
+export function getRepairDebt(
+  store: ReviewStoreLike,
+  wordId: unknown,
+): Record<string, unknown> | null {
   if (!store.open()) return null
-  const row = store.db.prepare('SELECT * FROM repair_debt WHERE word_id = ?').get(Number(wordId))
+  const row = store
+    .db!.prepare('SELECT * FROM repair_debt WHERE word_id = ?')
+    .get(Number(wordId)) as unknown as Record<string, unknown> | undefined
   return row || null
 }
 
 /** 今日未清的债（会话末补记用）。 */
-export function openRepairDebts(store, limit = 20) {
+export function openRepairDebts(store: ReviewStoreLike, limit = 20): RepairDebtRow[] {
   if (!store.open()) return []
-  return store.db
-    .prepare(
+  return store
+    .db!.prepare(
       `SELECT d.*, w.word, w.phonetic, w.translation,
               (SELECT ctx.sentence FROM contexts ctx WHERE ctx.word_id = d.word_id
                 ORDER BY ctx.created_at DESC LIMIT 1) AS sentence
@@ -283,5 +428,5 @@ export function openRepairDebts(store, limit = 20) {
         WHERE d.cleared_at IS NULL
         ORDER BY d.opened_at ASC LIMIT ?`,
     )
-    .all(Math.max(1, Number(limit) || 20))
+    .all(Math.max(1, Number(limit) || 20)) as unknown as RepairDebtRow[]
 }

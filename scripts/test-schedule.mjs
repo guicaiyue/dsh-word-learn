@@ -14,7 +14,7 @@ import path from 'node:path'
 const home = fs.mkdtempSync(path.join(os.tmpdir(), 'dwl-sched-'))
 process.env.DSH_HOME = home
 
-const { Store } = await import('../lib/store.mjs')
+const { Store } = await import('../lib/host/store.js')
 const { dueQueue, applyGrade, productiveReady, dayStart } = await import('../lib/host/schedule.js')
 
 let fails = 0

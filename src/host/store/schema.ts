@@ -12,7 +12,9 @@
 // ⚠️ SCHEMA 与 migrate() 的内容和顺序都不许改语义：迁移顺序本身是历史债。
 import os from 'node:os'
 import path from 'node:path'
-import { ensureCards } from '../host/schedule.js'
+
+import type { DatabaseSync } from 'node:sqlite'
+import { ensureCards } from '../schedule.js'
 
 const DSH_HOME = process.env.DSH_HOME || path.join(os.homedir(), '.dsh')
 export const DATA_DIR = path.join(DSH_HOME, 'dsh-word-learn')
@@ -172,8 +174,8 @@ CREATE INDEX IF NOT EXISTS idx_repair_word ON repair_log(word_id, created_at DES
  * 用 PRAGMA table_info 逐列检查，缺什么补什么；已经是对的库走一遍
  * 只是几条查询，代价可忽略。
  */
-export function migrate(db) {
-  const cols = (table) => {
+export function migrate(db: DatabaseSync): void {
+  const cols = (table: string): unknown[] => {
     try {
       return db
         .prepare(`PRAGMA table_info(${table})`)
@@ -232,7 +234,7 @@ export function migrate(db) {
   try {
     const orphans = db
       .prepare('SELECT id FROM words WHERE id NOT IN (SELECT DISTINCT word_id FROM cards)')
-      .all()
+      .all() as Array<{ id: number }>
     for (const row of orphans) ensureCards(db, row.id, Date.now())
   } catch (err) {
     /* 表结构异常时跳过，不影响打开 */

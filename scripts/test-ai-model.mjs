@@ -16,7 +16,7 @@ import assert from 'node:assert/strict'
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'dwl-model-test-'))
 process.env.DSH_HOME = tmp
 
-const { Store } = await import('../lib/store.mjs')
+const { Store } = await import('../lib/host/store.js')
 const {
   listTextModels,
   resolveAiModel,
