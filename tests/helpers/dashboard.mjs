@@ -1,9 +1,13 @@
 /**
- * dashboard.js 整文件加载器（给单测用）。
+ * 客户端产物（dist/client.js）整文件加载器（给单测用）。
  *
- * 为什么不切片：过去 3 个测试从 assets/dashboard.js 里按函数名切源码再 `new Function`，
- * 该注释/缩进/参数解构一变就碎，而且测的不是真实模块。这里用 `vm` 把整个
- * 客户端模块跑起来，提供最小 React + fetch 替身，从模块的 `__test__` 取组件。
+ * 为什么加载产物而不是源码：过去 3 个测试从 assets/dashboard.js 里按函数名切源码再
+ * `new Function`，注释/缩进/参数解构一变就碎，而且测的不是真实模块。阶段 1 起前端
+ * 由 tsdown 构建（src/client/plugin.js → dist/client.js），这里直接跑构建产物：
+ * 同一批 110 条断言同时成为「构建产物行为等价」的证据。
+ *
+ * 为什么不换成 jsdom：这一层测的是组件树与纯逻辑，不需要真实 DOM；真实 DOM 的组件
+ * 测试在 `tests/component/`（vitest + jsdom + RTL）。两层并存是刻意的。
  *
  * 与真实环境的差异：没有 DOM（组件只产出元素树）、没有真网络（fetch 由测试传）。
  * 这正是组件级单测该有的边界。
@@ -12,7 +16,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import vm from 'node:vm'
 
-const DASHBOARD = path.join(import.meta.dirname, '..', '..', 'assets', 'dashboard.js')
+const DASHBOARD = path.join(import.meta.dirname, '..', '..', 'dist', 'client.js')
 // dashboard.js 消费的两个注入脚本（生产环境由 lib/index.js 按同样顺序注入）：
 // 纯逻辑与 CSS 先加载，dashboard.js 的 factory 再从这里取 window.__dwlDashboard*。
 const LOGIC = path.join(import.meta.dirname, '..', '..', 'assets', 'dashboard-logic.js')
@@ -189,7 +193,7 @@ export function textOf(node) {
 }
 
 /**
- * 加载 dashboard.js 整个模块。
+ * 加载 dist/client.js 整个模块。
  * @param {{fetch?: Function, window?: object}} [options] 测试提供的替身
  * @returns {object} 模块导出对象（含 `__test__`）
  */
@@ -290,10 +294,10 @@ export function loadDashboard(options = {}) {
     vm.runInContext(logicCode, sandbox, { filename: 'assets/dashboard-logic.js' })
     vm.runInContext(styleCode, sandbox, { filename: 'assets/dashboard-style.js' })
   }
-  vm.runInContext(code, sandbox, { filename: 'assets/dashboard.js' })
+  vm.runInContext(code, sandbox, { filename: 'dist/client.js' })
   const def = sandbox.__module
   if (!def || typeof def.factory !== 'function') {
-    throw new Error('dashboard.js 没有走 window.__ModuleLoader__.load({ factory })')
+    throw new Error('dist/client.js 没有走 window.__ModuleLoader__.load({ factory })')
   }
   const mod = def.factory((name) => {
     if (name === 'react') return React

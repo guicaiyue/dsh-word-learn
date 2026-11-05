@@ -2,6 +2,9 @@
 node_modules/
 .pnpm-store/
 
+# 构建产物（不入库：本地 link 安装先 pnpm build；npm 包靠 prepublish 构建后随 tarball 发布）
+dist/
+
 # 本地测试产物与临时目录（测试脚本自己造临时 DSH_HOME）
 .tmp/
 coverage/

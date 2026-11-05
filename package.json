@@ -6,12 +6,13 @@
   "main": "lib/index.js",
   "exports": {
     ".": "./lib/index.js",
-    "./client": "./assets/dashboard.js",
+    "./client": "./dist/client.js",
     "./locale/*.json": "./locale/*.json",
     "./icon": "./icon.svg"
   },
   "files": [
     "lib",
+    "dist",
     "assets",
     "data",
     "locale/*.json",
@@ -36,17 +37,23 @@
     "node": ">=22.5.0"
   },
   "scripts": {
+    "build": "tsdown",
+    "dev": "tsdown --watch",
+    "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
+    "deps:check": "depcruise -C --config .dependency-cruiser.cjs lib src assets",
     "test:unit": "node --test \"tests/**/*.test.mjs\"",
     "test:unit:coverage": "node --experimental-test-coverage --test-coverage-include=lib/http.mjs --test-coverage-include=lib/text.js --test-coverage-include=lib/models.mjs --test-coverage-lines=95 --test-coverage-branches=85 --test-coverage-functions=95 --test \"tests/**/*.test.mjs\"",
+    "test:component": "vitest run",
     "test:legacy": "node scripts/test-all.mjs",
-    "test": "pnpm test:unit && pnpm test:unit:coverage && pnpm test:legacy",
+    "test": "pnpm test:unit && pnpm test:unit:coverage && pnpm test:component && pnpm test:legacy",
     "check:cycles": "node scripts/check-cycles.mjs",
-    "check": "pnpm lint && pnpm format:check && pnpm check:cycles",
-    "verify": "pnpm check && pnpm test"
+    "artifact:check": "node scripts/check-artifact.mjs",
+    "check": "pnpm typecheck && pnpm lint && pnpm format:check && pnpm deps:check && pnpm check:cycles",
+    "verify": "pnpm build && pnpm artifact:check && pnpm check && pnpm test"
   },
   "dsh": {
     "bundle": {
@@ -67,8 +74,19 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@testing-library/dom": "^10.4.2",
+    "@testing-library/react": "^16.3.3",
+    "@types/node": "^26.6.6",
+    "@vitest/coverage-v8": "^5.1.0",
+    "dependency-cruiser": "^18.7.2",
     "eslint": "^10.14.0",
     "globals": "^17.14.0",
-    "prettier": "^3.9.10"
+    "jsdom": "^30.1.3",
+    "prettier": "^3.9.10",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "tsdown": "^0.23.5",
+    "typescript": "^6.0.3",
+    "vitest": "^5.1.0"
   }
 }

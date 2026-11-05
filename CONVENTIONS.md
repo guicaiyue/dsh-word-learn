@@ -15,6 +15,12 @@
 优先级：**ESLint 报错 > 本文档 > 个人偏好 > 参考仓库的写法**。冲突时改代码，不改规则。
 本文档不抄配置项：`printWidth` 之类的值看 `.prettierrc.json`；`lib/` 为什么不能 import `assets/` 往下读。文档与机器版本不一致时以机器为准，并修文档。
 
+> **阶段 1 变更（2026-11-05，ADR-0001/0002/0005）**：本项目已解除「零构建」。
+> 前端源码搬到 `src/client/`（当前 `src/client/plugin.js`，由 tsdown 打成 `dist/client.js`），
+> `pnpm verify` 链路变为 `build → artifact:check → typecheck → lint → format → deps → 单测 → 组件测试 → 回归脚本`。
+> `CODE_BUDGET`/`max-lines` 已删除，环检测改由 dependency-cruiser 承担。
+> **本文档其余章节仍在描述迁移前形态，随阶段 2–4 逐步重写；与 `AGENTS.md`、`package.json`、`tsdown.config.ts` 冲突时以这三者为准。**
+
 ## 1. 项目形态与目录职责
 
 零构建 ESM 插件：宿主直接 `import` `lib/index.js`，页面直接 `<script>` 加载 `assets/*.js`。

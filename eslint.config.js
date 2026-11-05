@@ -4,51 +4,22 @@ import globals from 'globals'
 /**
  * dsh-word-learn 静态检测配置（ESLint flat config）。
  *
- * 原则：ESLint 只管「正确性 + 架构边界 + 体量预算」，排版一律交给 Prettier。
- * 这样 AI 改代码时，报错信息是「你做错了什么」，而不是「你怎么排的版」。
+ * 原则：ESLint 只管「正确性 + 架构边界」，排版一律交给 Prettier，
+ * 类型与未用检查交给 tsc。这样报错信息是「你做错了什么」，而不是「你怎么排的版」。
  *
- * 三条硬边界靠配置守，不靠记忆：
+ * 硬边界靠配置守，不靠记忆：
  *   1. assets/ 是注入页面的普通脚本（IIFE），不许 ESM、不许 import、不许 Node API；
- *   2. lib/ 是宿主侧 ESM，不许 import assets/（反过来 assets 也不许 import lib/）；
- *   3. 每个文件有代码行预算，新文件默认 400 行，超了应当拆模块，而不是把预算往上调；
- *   4. 模块之间不许出现 import 环：由 scripts/check-cycles.mjs 在 check 阶段守着（ESLint 10 下没有可靠的环检测插件）。
+ *   2. src/client 是构建源码（ESM → tsdown 单 bundle），同样不许 Node 全局；
+ *   3. lib/ 是宿主侧 ESM，不许 import assets/ 或 src/client（反过来也不许）；
+ *      这一条与「不许有 import 环」都由 dependency-cruiser 在 `pnpm deps:check` 守
+ *      （本文件只保留 ESLint 能便宜做到的单向 import 限制）。
  *
- * 新增依赖前先读 CONVENTIONS.md「依赖」一节：本插件刻意保持零构建。
+ * 2026-11-05 起删除 max-lines / CODE_BUDGET 棘轮（ADR-0005）：
+ * 体量不是缺陷本身，行数预算只约束形状；它把「不许 import」的后果催生成手工注入协议，
+ * 而本轮 6 个真缺陷没有一个由它抓到。客户端体积由产物预算（artifact:check）衡量。
+ *
+ * 新增依赖前先读 CONVENTIONS.md「依赖」一节。
  */
-
-/** 每个文件的代码行预算（去空行、去注释）。新增文件不写在这里就吃默认 400。 */
-const CODE_BUDGET = {
-  default: 400,
-  files: {
-    'lib/index.js': 210,
-    'lib/store.mjs': 150,
-    'lib/ai-enrich.mjs': 10,
-    'lib/r5.mjs': 380,
-    'lib/schedule.mjs': 300,
-    'lib/dict.mjs': 260,
-    'assets/dashboard.js': 3000,
-    // 学习页样式：CSS 模板串逐字节搬自 dashboard.js（约 500 代码行），
-    // 单文件超默认 400；拆成两个文件只会把一段 CSS 割裂，故按实际值单列预算。
-    'assets/dashboard-style.js': 509,
-    'assets/annotate.js': 1300,
-    // 划词卡拆成三段后只剩装配/请求/选区判定（视图与样式在 wordcard-card/style，
-    // 两者走默认 400）；这里按实际值 520 留 20 行余量，只降不升。
-    'assets/wordcard.js': 540,
-    'scripts/test-routes.mjs': 680,
-    'scripts/test-r5.mjs': 590,
-    'scripts/test-annotate.mjs': 590,
-  },
-}
-
-/** max-lines 按「代码行」算：空行与注释不计，避免注释写多了就报警。 */
-function budget(max) {
-  return ['error', { max, skipBlankLines: true, skipComments: true }]
-}
-
-const budgetOverrides = Object.entries(CODE_BUDGET.files).map(([file, max]) => ({
-  files: [file],
-  rules: { 'max-lines': budget(max) },
-}))
 
 /** 所有 zone 共享的正确性规则。 */
 const baseRules = {
@@ -95,8 +66,13 @@ export default [
       'design/**',
       'lab/**',
       'locale/**',
+      'dist/**',
       'scripts/test-annotate-fixture/**',
       '**/*.min.js',
+      // TS/TSX 由 tsc（tsconfig.json 的 noUnusedLocals 等）负责类型与未用检查；
+      // ESLint 没有配 @typescript-eslint parser，强行 lint 只会拿到「0 条规则」的假绿。
+      '**/*.ts',
+      '**/*.tsx',
     ],
   },
 
@@ -106,7 +82,6 @@ export default [
     ...nodeZone,
     rules: {
       ...baseRules,
-      'max-lines': budget(CODE_BUDGET.default),
       'no-restricted-imports': [
         'error',
         {
@@ -114,6 +89,10 @@ export default [
             {
               group: ['**/assets/**', '../assets/**', './assets/**'],
               message: '宿主侧不许 import assets/：那是注入页面的普通脚本（IIFE），不是模块。',
+            },
+            {
+              group: ['**/src/client/**', '../src/client/**', './src/client/**'],
+              message: '宿主侧不许 import src/client/：那是浏览器产物源码。',
             },
           ],
         },
@@ -127,7 +106,6 @@ export default [
     ...browserZone,
     rules: {
       ...baseRules,
-      'max-lines': budget(CODE_BUDGET.default),
       // script 模式下 import/export 本身就是语法错误；require 则是未定义全局
       'no-restricted-globals': [
         'error',
@@ -138,13 +116,33 @@ export default [
     },
   },
 
+  // ---- 浏览器侧构建源码：ESM + 浏览器全局 -------------------------------------
+  // 与 assets/ 的区别：这里允许 import/export（tsdown 会打成单 bundle），
+  // 但仍禁止 Node 全局 —— 产物跑在浏览器，`process`/`__dirname` 一律运行期炸。
+  {
+    files: ['src/client/**/*.js'],
+    languageOptions: {
+      ecmaVersion: 'latest',
+      sourceType: 'module',
+      globals: { ...globals.browser },
+    },
+    rules: {
+      ...baseRules,
+      'no-restricted-globals': [
+        'error',
+        { name: 'process', message: '客户端源码跑在浏览器，没有 process。' },
+        { name: '__dirname', message: '客户端源码跑在浏览器，没有 __dirname。' },
+        { name: 'Buffer', message: '客户端源码跑在浏览器，没有 Buffer。' },
+      ],
+    },
+  },
+
   // ---- 测试脚本：Node ESM ----------------------------------------------------
   {
     files: ['scripts/**/*.mjs', 'tests/**/*.mjs'],
     ...nodeZone,
     rules: {
       ...baseRules,
-      'max-lines': budget(CODE_BUDGET.default),
       'no-console': 'off',
     },
   },
@@ -154,7 +152,4 @@ export default [
     files: ['*.config.js', '*.config.mjs', 'eslint.config.js', 'scripts/*.mjs'],
     ...nodeZone,
   },
-
-  // ---- 单文件体量预算（覆盖上面的默认值） ------------------------------------
-  ...budgetOverrides,
 ]

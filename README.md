@@ -158,27 +158,41 @@ python scripts\build_dict.py
 ### 常用命令
 
 ```powershell
-# 静态检测（ESLint 管正确性、目录边界、文件体量预算；Prettier 管排版）
+# 构建（阶段 1 起前端有构建步骤：src/client/** -> dist/client.js）
+pnpm build         # tsdown：产出 dist/client.js + dist/client.js.map
+pnpm dev           # tsdown --watch（改 src/client 自动重建，平台 500ms 内自动重载）
+
+# 类型与静态检测（tsc 管类型，ESLint 管正确性与目录边界，Prettier 管排版）
+pnpm typecheck     # tsc --noEmit（只覆盖 src/** 与配置文件；lib/** 的 JS 类型化在阶段 3）
 pnpm lint          # eslint .
 pnpm lint:fix
 pnpm format        # prettier --write .
 pnpm format:check
-pnpm check         # lint + format:check + 环检测
-pnpm check:cycles  # lib/ 内部 import 环检测（有环 exit 1）
+pnpm deps:check    # dependency-cruiser：环 + 分层方向 + 客户端不碰 node: 内建
+pnpm check:cycles  # 旧的正则版环检测（阶段 4 删除，过渡期与 deps:check 并存）
 
-# 单元测试（tests/，node:test）
+# 单元测试（tests/，node:test；加载 dist/client.js 构建产物）
 pnpm test:unit
 
 # 单测 + 覆盖率门槛（http/text/models）
 pnpm test:unit:coverage
 
+# 组件测试（vitest + jsdom + 真实 React，渲染 dist 产物里的组件）
+pnpm test:component
+
 # 回归脚本（scripts/test-all.mjs 收编 scripts/test-*.mjs）
 pnpm test:legacy
 
+# 产物契约（单 factory / id / 无 node: / sourcemap / 体积预算）
+pnpm artifact:check
+
 # 全部
-pnpm test          # test:unit + test:unit:coverage + test:legacy
-pnpm verify        # check + test，交付前唯一验收
+pnpm test          # test:unit + test:unit:coverage + test:component + test:legacy
+pnpm verify        # build + check + test + artifact:check，交付前唯一验收
 ```
+
+> **本地 link 安装后必须先 `pnpm build`**：DSH 从 `exports["./client"]`（现在是
+> `dist/client.js`）读客户端产物，产物缺失时宿主会报 `run pnpm run build before launch`。
 
 ### 端到端与专项脚本（可单跑）
 
@@ -202,18 +216,18 @@ node scripts\test-settings-ui.mjs
 
 **改哪一半、要不要重启**：
 
-| 改什么                                                   | 怎么生效                                                                                                              |
-| -------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
-| `assets/core.js`（划词纯判定/排除范围）                  | 硬刷新页面即可（按 mtime 热重载；wordcard 从 `window.__dwlCore` 取判定）                                              |
-| `assets/voice.js`（语音合成）                            | 硬刷新页面即可（同上）                                                                                                |
-| `assets/wordcard-style.js`（划词卡样式）                 | 硬刷新页面即可（同上）                                                                                                |
-| `assets/wordcard-card.js`（划词卡视图）                  | 硬刷新页面即可（同上）                                                                                                |
-| `assets/wordcard.js`（划词卡装配，经 `/client.js` 提供） | 硬刷新页面即可（同上）                                                                                                |
-| `assets/dashboard-logic.js`（学习页纯逻辑）              | 硬刷新页面即可（同上；dashboard.js 就绪前显示「正在加载」）                                                           |
-| `assets/dashboard-style.js`（学习页样式）                | 硬刷新页面即可（同上）                                                                                                |
-| `assets/annotate.js`（对话内联标注）                     | 硬刷新页面即可（按 mtime 热重载，no-store）                                                                           |
-| `assets/dashboard.js`（学习页 client 产物）              | **要重新激活插件**：宿主在激活时把 client 半边读成快照，单刷新页面不够；改一下 `cordis.patch.yml` 触发 HMR 或重启宿主 |
-| `lib/**/*.mjs`（宿主侧）                                 | **重挂插件**即可，不必重启宿主（见下）                                                                                |
+| 改什么                                                   | 怎么生效                                                                                                                          |
+| -------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| `assets/core.js`（划词纯判定/排除范围）                  | 硬刷新页面即可（按 mtime 热重载；wordcard 从 `window.__dwlCore` 取判定）                                                          |
+| `assets/voice.js`（语音合成）                            | 硬刷新页面即可（同上）                                                                                                            |
+| `assets/wordcard-style.js`（划词卡样式）                 | 硬刷新页面即可（同上）                                                                                                            |
+| `assets/wordcard-card.js`（划词卡视图）                  | 硬刷新页面即可（同上）                                                                                                            |
+| `assets/wordcard.js`（划词卡装配，经 `/client.js` 提供） | 硬刷新页面即可（同上）                                                                                                            |
+| `assets/dashboard-logic.js`（学习页纯逻辑）              | 硬刷新页面即可（同上；dashboard.js 就绪前显示「正在加载」）                                                                       |
+| `assets/dashboard-style.js`（学习页样式）                | 硬刷新页面即可（同上）                                                                                                            |
+| `assets/annotate.js`（对话内联标注）                     | 硬刷新页面即可（按 mtime 热重载，no-store）                                                                                       |
+| `src/client/**`（学习页 client 源码）                    | `pnpm dev`（tsdown --watch）重建 `dist/client.js` → 平台 client-hmr 500ms 轮询发现变化 → 浏览器自动重载模块；**不需要**刷新或重启 |
+| `lib/**/*.mjs`（宿主侧）                                 | **重挂插件**即可，不必重启宿主（见下）                                                                                            |
 
 注入顺序固定（`lib/index.js` 的 `SCRIPT_PATHS`，loader 显式 `async=false` 保证按插入顺序执行）：
 `core.js` → `voice.js` → `wordcard-style.js` → `wordcard-card.js` → `dashboard-logic.js` →
