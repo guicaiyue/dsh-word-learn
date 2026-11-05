@@ -19,12 +19,11 @@ import globals from 'globals'
 const CODE_BUDGET = {
   default: 400,
   files: {
-    'lib/index.js': 1320,
+    'lib/index.js': 210,
     'lib/store.mjs': 800,
     'lib/ai-enrich.mjs': 620,
     'lib/r5.mjs': 380,
     'lib/schedule.mjs': 300,
-    'lib/tts.mjs': 300,
     'lib/dict.mjs': 260,
     'assets/dashboard.js': 3900,
     'assets/annotate.js': 1300,
