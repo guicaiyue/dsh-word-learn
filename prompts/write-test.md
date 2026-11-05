@@ -8,22 +8,23 @@
 
 先选层，选错层会写出一堆跑得慢又抓不到 bug 的测试：
 
-| 层         | 位置                                     | 适合                                                       | 不适合                       |
-| ---------- | ---------------------------------------- | ---------------------------------------------------------- | ---------------------------- |
-| 单元测试   | `tests/unit/*.test.mjs`（`node --test`） | 纯函数、模块契约、排期字段映射、文本判断                   | 需要 `ctx`/HTTP/真实页面结构 |
-| 端到端脚本 | `scripts/test-*.mjs`                     | 路由（桩 ctx 真跑）、跨模块写库、前端判定（vm 整文件加载） | 只测一个纯函数（太重）       |
+| 层         | 位置                                                      | 适合                                                                | 不适合                       |
+| ---------- | --------------------------------------------------------- | ------------------------------------------------------------------- | ---------------------------- |
+| 单元测试   | `tests/unit/*.test.mjs`（`node --test`）                  | 纯函数、模块契约、排期字段映射、文本判断                            | 需要 `ctx`/HTTP/真实页面结构 |
+| 组件测试   | `tests/component/*.test.{ts,tsx}`（vitest + jsdom + RTL） | 前端真实渲染：视图文案/role/回调/提交的 fetch 载荷、install→dispose | 宿主路由、真实网络           |
+| 端到端脚本 | `scripts/test-*.mjs`                                      | 路由（桩 ctx 真跑）、跨模块写库                                     | 只测一个纯函数（太重）       |
 
 ## 先读什么（别跳）
 
-| 文件                          | 行区                   | 为什么                                                         |
-| ----------------------------- | ---------------------- | -------------------------------------------------------------- |
-| `scripts/test-routes.mjs`     | 1–25                   | 临时 `DSH_HOME` 的标准写法（含"为什么不能用真实库"）           |
-| `scripts/test-scope.mjs`      | 1–32                   | vm 整文件加载 `assets/core.js`，从 `__dwlCore` 取函数          |
-| `tests/helpers/dashboard.mjs` | 1–60                   | vm 整文件加载 dashboard.js + logic/style，从 `__test__` 取组件 |
-| `scripts/test-schedule.mjs`   | 全文（137 行）         | 断言式单测的范例：间隔序列逐条比                               |
-| 被测模块                      | 文件头 1–40 + 导出清单 | 先知道它的输入输出与已知坑                                     |
-| `CONVENTIONS.md`              | §9 测试                | 三个入口、硬规则、何时必须有测试                               |
-| `lib/schedule.mjs`            | 28–62                  | 常量（`TRACKS`、`RATING`、`leech/上限`）直接复用，不要重抄数字 |
+| 文件                                 | 行区                   | 为什么                                                                                            |
+| ------------------------------------ | ---------------------- | ------------------------------------------------------------------------------------------------- |
+| `scripts/test-routes.mjs`            | 1–25                   | 临时 `DSH_HOME` 的标准写法（含"为什么不能用真实库"）                                              |
+| `tests/support/load-bundle.ts`       | 全文                   | 把 `dist/client.js` 装进 jsdom，返回 apply/inject/`__test__`；`loadLogic()` 取真实 LOGIC          |
+| `tests/component/dashboard.test.tsx` | 全文                   | 真实 React 渲染范例：`act(async)` 收 promise、`vi.stubGlobal('fetch')` 打桩、`afterEach(cleanup)` |
+| `scripts/test-schedule.mjs`          | 全文（137 行）         | 断言式单测的范例：间隔序列逐条比                                                                  |
+| 被测模块                             | 文件头 1–40 + 导出清单 | 先知道它的输入输出与已知坑                                                                        |
+| `CONVENTIONS.md`                     | §9 测试                | 三个入口、硬规则、何时必须有测试                                                                  |
+| `lib/schedule.mjs`                   | 28–62                  | 常量（`TRACKS`、`RATING`、`leech/上限`）直接复用，不要重抄数字                                    |
 
 ## 步骤
 
@@ -37,17 +38,21 @@
 4. **写断言**：`import assert from 'node:assert/strict'`；每条断言带中文信息，且信息能独立读懂：
    `assert.equal(got, 'child', 'children 应回退到原形 child，实际得到 ' + got)`。
    不要 `console.log` 后目测，不要 `assert.ok(x)` 这种信息量低的写法。
+   组件层（`tests/component`）改用 vitest `expect` + RTL 查询（`getByRole`/`getByText`），
+   断言用户可见行为，不要断言元素树 props。
 5. **先跑一次确认**：新断言若应捕获已知 bug，要先看到红；纯新增覆盖则要先绿。
 6. **登记入口**：legacy 脚本要加进 `scripts/test-all.mjs`（否则 CI 只跑一半）；
-   `tests/unit/*.test.mjs` 由 `pnpm test:unit` 按 glob 捡；文件名必须是 `*.test.mjs`。
+   `tests/unit/*.test.mjs` 由 `pnpm test:unit` 按 glob 捡；组件测试由 `pnpm test:component`
+   按 vitest.config.ts 的 include（`tests/component/**/*.test.{ts,tsx}`）捡。
 7. 跑验证。
 
 ## 硬约束
 
 - **禁止真实用户库**：任何会写库的路径都必须临时 `DSH_HOME`；`--allow-real-db` 类开关默认关闭。
 - **禁止真实网络**：不许打真实翻译/LLM/TTS/例句接口，也不许把网络失败当断言通过条件。
-- **不许复制被测逻辑**到测试里（尤其前端作用范围/标注判定）：整文件 vm 加载真实源码
-  （`core.js` / `dashboard.js` / `dashboard-logic.js` / `dashboard-style.js`），不要再按函数名切字符串。
+- **不许复制被测逻辑**到测试里（尤其前端作用范围/标注判定）：组件层用 vitest + jsdom + RTL
+  渲染真实产物 `dist/client.js`（`tests/support/load-bundle.ts`），不要再手搓 React 替身、
+  也不要按函数名切字符串。
 - 不许用 `setTimeout` 等固定时间当同步手段（用轮询条件或注入 now/时钟）。
 - 不许为了让测试过而改产品代码的语义；发现产品代码有问题就回到 bug/重构流程。
 - 测试脚本也吃 `max-lines` 预算（默认 400）；超了拆成两个脚本，别调预算。
@@ -57,7 +62,8 @@
 
 ```bash
 node scripts/test-<新脚本>.mjs   # legacy：必须能单跑
-pnpm test:unit                   # tests/unit 下的单测（现 11 个文件、110 条）
+pnpm test:unit                   # tests/unit 下的 node:test 单测
+pnpm test:component              # tests/component 下的 vitest + jsdom + RTL（需先 pnpm build）
 pnpm test:legacy                 # 确认已注册进 test-all
 pnpm verify                      # 唯一验收
 ```

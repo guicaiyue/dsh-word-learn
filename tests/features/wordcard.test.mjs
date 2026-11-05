@@ -1,14 +1,14 @@
 // 测什么：src/client/features/wordcard/**（原注入脚本 assets/wordcard.js +
 // wordcard-card.js + wordcard-style.js）—— 安装/卸载生命周期、划词判定、卡片内容。
 //
-// 迁移来源：这几块原先没有独立单测（只有 scripts/test-hoverword.mjs 那种"整文件加载
-// 学习页"的间接覆盖 + 真机复验）。构建化后模块是纯 ESM，能直接 import，于是把
+// 迁移来源：这几块原先没有独立单测（只有旧 vm 脚本——已迁入 tests/component/hover-word.test.tsx
+// ——那种"整文件加载学习页"的间接覆盖 + 真机复验）。构建化后模块是纯 ESM，能直接 import，于是把
 // 「注入顺序 / window 全局 / 真机才看得到」的那部分行为补成可重跑的断言。
 //
 // 为什么手搓假 DOM 而不用 jsdom：这一层是 node:test（不是 vitest + jsdom 的组件层），
 // 且真正要验的是"监听有没有挂/摘、选区落在哪个容器、卡片被喂了什么" —— 全在逻辑面上，
 // 不需要排版；假 DOM 还能直接给出 getClientRects 的矩形（jsdom 没有布局，永远是 0×0，
-// 卡片根本不会弹）。见 tests/helpers/dashboard.mjs 里同样的取舍说明。
+// 卡片根本不会弹）。jsdom 侧的装卸生命周期另见 tests/component/install-dispose.test.ts。
 //
 // 边界：不联网（fetch 全 stub）、不碰用户库、不起宿主；语音模块由 core.js 的
 // voiceModule() 从 window 找（阶段 2 收尾改成 import），这里不依赖它可用。

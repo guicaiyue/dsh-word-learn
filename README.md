@@ -205,8 +205,9 @@ node --no-warnings scripts\test-ai-model.mjs
 # AI 分析模型：/models、/model 路由（假 llm，不花钱）
 node --no-warnings scripts\test-model-routes.mjs
 
-# 设置页「AI 分析模型」的渲染分支（vm 整文件加载 dashboard.js，从 __test__ 取组件）
-node scripts\test-settings-ui.mjs
+# 前端组件测试（vitest + jsdom + RTL，真实渲染构建产物 dist/client.js）
+# 先 pnpm build 重建产物；设置页渲染分支、划词卡、学习页视图都在这里
+pnpm test:component
 ```
 
 **改哪一半、要不要重启**：

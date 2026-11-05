@@ -1,8 +1,8 @@
 /**
  * StatsView / VocabView —— 真实 React 渲染（jsdom + RTL）。
  *
- * 迁移自 `tests/unit/dashboard-views.test.mjs`（node:test + `tests/helpers/dashboard.mjs`
- * 的 299 行手搓 React 运行时）。旧断言逐条保留，只把「遍历元素树取 props」换成
+ * 迁移自 `tests/unit/dashboard-views.test.mjs`（node:test + 299 行手搓 React 运行时
+ * 的旧基座，已随迁移删除）。旧断言逐条保留，只把「遍历元素树取 props」换成
  * 「查真实 DOM / role / 可见文案」：
  *
  *   - 树遍历 `findAll(tree, n => n.type === ...)` → `container.querySelector` /

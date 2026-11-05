@@ -64,9 +64,8 @@
 ## 必须执行的验证
 
 ```bash
-node scripts/test-scope.mjs        # 改划词范围判定时必跑（vm 整文件加载 assets/core.js 求值）
-node scripts/test-annotate.mjs     # 改标注层时必跑
-node scripts/test-settings-ui.mjs  # 改设置页渲染分支时
+pnpm test:component                # vitest + jsdom + RTL，真实渲染 dist/client.js（改前端后必跑）
+node scripts/test-annotate.mjs     # 改标注层判定时必跑（整文件加载，验 tokenize/排除范围）
 pnpm lint:fix
 pnpm format
 pnpm verify

@@ -129,7 +129,7 @@
 - `lib/index.js` 默认导出 `{ name, apply(root) }`（宿主契约）。
 - 其余 `lib/*` 一律**命名导出**，方便测试按需引；不要为整齐加 `default`。
 - `assets/` 的 IIFE 不导出，状态挂 `window.__dwl*`（`core.js` → `__dwlCore`、`voice.js` → `__dwlVoice`）；
-  `dashboard.js` 只导出 `{ inject, apply }`，另挂 `__test__` 供单测取组件/纯函数（`tests/helpers/dashboard.mjs`）。
+  `plugin.js` 经 tsdown 打成 `dist/client.js`；`__test__` 供 `tests/component`（vitest + jsdom + RTL）取组件/纯函数。
 - `lib/store/*.mjs`、`lib/enrich/*.mjs` 的命名导出第一个参数是依赖（Store 实例 / 假对象），不 import 单例。
 - 测试脚本不导出，用 `process.exitCode` 决定成败。
 
@@ -470,12 +470,12 @@ const limit = intParam(url, 'limit', { fallback: 200, min: 1, max: 500, floor: t
 其中 `inject-order`（注入顺序 + `async=false`）、`dashboard-refresh`（资产就绪竞态）、
 `dashboard-views`、`enrich-queue`（dispose 后重新武装）、`routes-shared`（`clampInt`）是这次拆分新加的守卫。
 
-`tests/unit/*.test.mjs` 是唯一单测目录，命令里的 glob 是 `tests/**/*.test.mjs`：别退回不带路径的
-`node --test`（那会把 `scripts/test-*.mjs` 也当单测跑，重复且更慢）。前端组件/纯函数用
-`tests/helpers/dashboard.mjs`：vm 整文件加载 `assets/dashboard.js`，提供最小 React + fetch 替身，
-从模块的 `__test__` 取 `HoverWord`/`WritePanel`/`SettingsView` 与
-`normalizeSpelling`/`editDistance`/`spellCheck`（加载器会先跑 `dashboard-logic.js` 与
-`dashboard-style.js`，模拟生产注入顺序）；`test-scope.mjs` 同样用 vm 加载 `assets/core.js`。
+`tests/unit/*.test.mjs` 是 node:test 单测目录，命令里的 glob 是 `tests/**/*.test.mjs`：别退回不带路径的
+`node --test`（那会把 `scripts/test-*.mjs` 也当单测跑，重复且更慢）。前端组件走
+`tests/component/*.test.{ts,tsx}`（vitest + jsdom + RTL）：`tests/support/load-bundle.ts`
+把构建产物 `dist/client.js` 装进 jsdom，从模块的 `__test__` 取 `HoverWord`/`WritePanel`/
+`SettingsView` 等**真实组件**渲染断言（不再有手搓 React 替身，也没有 vm 整文件加载）；
+划词/标注判定的纯函数单测直接 import 模块，在 `tests/features/`。
 
 ### 9.2 硬规则
 
@@ -487,25 +487,24 @@ const limit = intParam(url, 'limit', { fallback: 200, min: 1, max: 500, floor: t
 - 发音是纯前端 `speechSynthesis`，测试里用 `__setSynth` 注入假 synth，不要真的发声。
 - 禁止打印后目测：用 `assert/strict`，失败信息写中文且能独立读懂，例如
   `assert.equal(got, 'child', 'children 应回退到原形 child，实际得到 ' + got)`。
-- 测前端判定**整文件 vm 加载真实源码**求值：`test-scope.mjs` 跑 `assets/core.js` 后从 `window.__dwlCore`
-  取函数；dashboard 前端测试走 `tests/helpers/dashboard.mjs` + `__test__`（整文件加载
-  `dashboard.js` + `dashboard-logic.js` + `dashboard-style.js`）。不要在测试里复制实现，
-  也不要再按函数名切字符串（注释/缩进一变就碎）。
+- 测前端判定**直接 import 真实模块**求值（`tests/features/scope.test.mjs` import `core.js`）；
+  dashboard 组件测试走 `tests/component/`（vitest + jsdom 渲染产物 `dist/client.js` 的 `__test__`）。
+  不要在测试里复制实现，也不要再按函数名切字符串（注释/缩进一变就碎）。
 - `--allow-real-db` 这类开关默认关闭，只允许人手在确认无副作用时打开。
 
 ### 9.3 什么时候必须有测试
 
-| 改动                     | 要求                                                           |
-| ------------------------ | -------------------------------------------------------------- |
-| 新增/修改路由            | `scripts/test-routes.mjs` 加断言（桩 ctx 真跑）                |
-| 修 bug                   | **先写一条会红的回归**再修；交付说明里写"哪个断言之前是红的"   |
-| 改排期/FSRS 映射         | 单测覆盖间隔序列（`test-schedule.mjs` 是范例）                 |
-| 改前端作用范围/标注判定  | `test-scope.mjs`/`test-annotate.mjs` 必须仍绿                  |
-| 改 dashboard 组件/纯函数 | `tests/helpers/dashboard.mjs` 加载后从 `__test__` 取，整文件测 |
-| 改注入链 / 资产就绪契约  | `tests/unit/inject-order` 与 `dashboard-refresh` 必须绿        |
-| 改 AI 队列生命周期       | `tests/unit/enrich-queue` 锁 dispose 后重新武装                |
-| 改响应形状               | 同步改前端调用与端到端断言                                     |
-| 纯注释/文档              | 不需要                                                         |
+| 改动                     | 要求                                                         |
+| ------------------------ | ------------------------------------------------------------ |
+| 新增/修改路由            | `scripts/test-routes.mjs` 加断言（桩 ctx 真跑）              |
+| 修 bug                   | **先写一条会红的回归**再修；交付说明里写"哪个断言之前是红的" |
+| 改排期/FSRS 映射         | 单测覆盖间隔序列（`test-schedule.mjs` 是范例）               |
+| 改前端作用范围/标注判定  | `test-scope.mjs`/`test-annotate.mjs` 必须仍绿                |
+| 改 dashboard 组件/纯函数 | `tests/component/` 下 vitest + jsdom + RTL 渲染真实产物断言  |
+| 改注入链 / 资产就绪契约  | `tests/unit/inject-order` 与 `dashboard-refresh` 必须绿      |
+| 改 AI 队列生命周期       | `tests/unit/enrich-queue` 锁 dispose 后重新武装              |
+| 改响应形状               | 同步改前端调用与端到端断言                                   |
+| 纯注释/文档              | 不需要                                                       |
 
 ## 10. 完成定义（DoD）
 
