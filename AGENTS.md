@@ -26,25 +26,30 @@ pnpm format        # 再统一排版
 
 ## 2. 改 X 去哪里
 
-| 要改的东西                             | 文件                               | 备注                                             |
-| -------------------------------------- | ---------------------------------- | ------------------------------------------------ |
-| 划词卡片、选区判定、浮层样式           | `assets/wordcard.js`               | 普通 IIFE；`SCOPE_SELECTOR` 在文件末尾附近       |
-| 学习页四个视图、侧栏入口、客户端文案   | `assets/dashboard.js`              | React 客户端模块；改完要**重新激活插件**         |
-| 对话内联标注、悬停小卡                 | `assets/annotate.js`               | 普通 IIFE；只在 `[data-chat-flow]` 内动          |
-| 路由、注入行、信任栅栏、响应出口       | `lib/index.js`                     | handler 只解析参数，业务往下走                   |
-| 路由 query 参数读值/钳制               | `lib/http.mjs`                     | 数字参数必须过 `intParam`，别裸写 `Number`       |
-| 排期、FSRS 映射、队列、毕业/leech      | `lib/schedule.mjs`                 | 别在路由里直接算 FSRS                            |
-| 用户库 schema、读写、迁移              | `lib/store.mjs`                    | SQL 主要归口；schema 变更见 CONVENTIONS §6.3     |
-| 发音（前端语音合成、音色选择）         | `assets/voice.js`                  | 零网络：只用浏览器自带音色，缓存的是偏好不是音频 |
-| 整句翻译、降级链                       | `lib/translate.mjs`                | 交互路径：失败回 200 + `ok:false`                |
-| AI 分析、义项材料、出题、队列          | `lib/ai-enrich.mjs`                | 服务获取走 `service.mjs`                         |
-| AI 分析用哪个模型                      | `lib/models.mjs`                   | 复用 DSH 模型目录，不自己维护名单                |
-| 词典查询、变形回退、词频分级           | `lib/dict.mjs`                     | 只读 `data/ecdict.db`                            |
-| 回访（R5）、义项地图                   | `lib/r5.mjs`                       | 只记日志，不动 FSRS                              |
-| 标注目标词表                           | `lib/annotate.mjs`                 | 只返回在学、有卡片的词                           |
-| 文本判断（是不是单词、拆词、代码过滤） | `lib/text.js`                      | 纯函数，改这里先看 `test-scope`/`test-routes`    |
-| 取 cordis 服务                         | `lib/service.mjs`                  | 用 `ctx.get(name)`；`ctx.llm` 会抛               |
-| 包级文案                               | `locale/zh.json`、`locale/en.json` | 两份键必须一致                                   |
+| 要改的东西                             | 文件                               | 备注                                                               |
+| -------------------------------------- | ---------------------------------- | ------------------------------------------------------------------ |
+| 划词卡片、选区判定、浮层样式           | `assets/wordcard.js`               | 普通 IIFE；`SCOPE_SELECTOR` 在文件末尾附近                         |
+| 学习页四个视图、侧栏入口、客户端文案   | `assets/dashboard.js`              | React 客户端模块；改完要**重新激活插件**                           |
+| 对话内联标注、悬停小卡                 | `assets/annotate.js`               | 普通 IIFE；只在 `[data-chat-flow]` 内动                            |
+| 新增/改一条路由的 handler              | `lib/routes/{组}.mjs`              | 组：assets/study/review/ai/repair/annotate；只解析参数，业务往下走 |
+| 路由路径字符串                         | `lib/routes/paths.mjs`             | 常量唯一出口，别在 handler 里写死路径                              |
+| 响应出口（safeSend / fail / readJson） | `lib/routes/shared.mjs`            | 响应只从 safeSend 出；错误只回稳定 code + 人话                     |
+| 注入行、信任栅栏、registerRoute 包装   | `lib/index.js`                     | 入口只做挂载与卸载，约 200 代码行                                  |
+| 词典/用户库单例、前端脚本 mtime 缓存   | `lib/runtime.mjs`                  | 进程级状态；路由模块只消费                                         |
+| 查词结果组装（lookupWord）             | `lib/lookup.mjs`                   | /lookup、/word、/translate 共用                                    |
+| 路由 query 参数读值/钳制               | `lib/http.mjs`                     | 数字参数必须过 `intParam`，别裸写 `Number`                         |
+| 排期、FSRS 映射、队列、毕业/leech      | `lib/schedule.mjs`                 | 别在路由里直接算 FSRS                                              |
+| 用户库 schema、读写、迁移              | `lib/store.mjs`                    | SQL 主要归口；schema 变更见 CONVENTIONS §6.3                       |
+| 发音（前端语音合成、音色选择）         | `assets/voice.js`                  | 零网络：只用浏览器自带音色，缓存的是偏好不是音频                   |
+| 整句翻译、降级链                       | `lib/translate.mjs`                | 交互路径：失败回 200 + `ok:false`                                  |
+| AI 分析、义项材料、出题、队列          | `lib/ai-enrich.mjs`                | 服务获取走 `service.mjs`                                           |
+| AI 分析用哪个模型                      | `lib/models.mjs`                   | 复用 DSH 模型目录，不自己维护名单                                  |
+| 词典查询、变形回退、词频分级           | `lib/dict.mjs`                     | 只读 `data/ecdict.db`                                              |
+| 回访（R5）、义项地图                   | `lib/r5.mjs`                       | 只记日志，不动 FSRS                                                |
+| 标注目标词表                           | `lib/annotate.mjs`                 | 只返回在学、有卡片的词                                             |
+| 文本判断（是不是单词、拆词、代码过滤） | `lib/text.js`                      | 纯函数，改这里先看 `test-scope`/`test-routes`                      |
+| 取 cordis 服务                         | `lib/service.mjs`                  | 用 `ctx.get(name)`；`ctx.llm` 会抛                                 |
+| 包级文案                               | `locale/zh.json`、`locale/en.json` | 两份键必须一致                                                     |
 
 ## 3. 硬约束（违反即算失败，不讨论）
 

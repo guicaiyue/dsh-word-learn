@@ -20,21 +20,26 @@
 零构建 ESM 插件：宿主直接 `import` `lib/index.js`，页面直接 `<script>` 加载 `assets/*.js`。
 没有打包、没有转译、没有 `dist/`。Node >= 22.5，包管理器 pnpm，运行时依赖只有 `ts-fsrs`。
 
-| 路径                               | 跑在哪                        | 能做什么                                 | 禁止什么                                      |
-| ---------------------------------- | ----------------------------- | ---------------------------------------- | --------------------------------------------- |
-| `lib/index.js`                     | 宿主（Node ESM）              | 注入脚本、注册路由、套栅栏、解析参数     | 写业务算法；拼 SQL；import `assets/`          |
-| `lib/http.mjs`                     | 宿主（Node ESM）              | 路由层 query 参数读值与钳制              | 在 handler 里裸写 `Number(...)`；自己夹上下限 |
-| `lib/*.mjs`、`lib/text.js`         | 宿主（Node ESM）              | 词典、存储、排期、翻译、AI、R5、文本工具 | import `assets/`；模块加载时开用户库          |
-| `assets/wordcard.js`               | 页面（普通 `<script>`，IIFE） | 划词判定、浮层卡片、调本插件路由         | import/export、`require`、`process`、改正文   |
-| `assets/annotate.js`               | 页面（普通 `<script>`，IIFE） | 给已学词加虚线下划线                     | 同上；标代码块/流式内容/其它插件弹窗          |
-| `assets/dashboard.js`              | DSH 客户端（React 模块）      | 左栏入口、学习页、客户端 locale          | Node API；ESM import；直连 SQLite             |
-| `data/ecdict.db`                   | 只读                          | ECDICT 精简词典，可重建                  | 写入；提交进 git                              |
-| `$DSH_HOME/dsh-word-learn/user.db` | 只经 `lib/store.mjs`          | 生词本、卡片、复习日志、设置             | 测试直连真实库                                |
-| `$DSH_HOME/dsh-word-learn/cache/`  | 可删                          | 翻译缓存（发音不走网络，没有音频缓存）   | 当持久数据依赖                                |
-| `scripts/test-*.mjs`               | Node（手跑）                  | 回归脚本，可单独执行                     | 真实网络、真实用户库                          |
-| `tests/`                           | Node（`node --test`）         | 新增功能的单测                           | 同上                                          |
-| `design/`、`lab/`                  | 不运行                        | 历史设计稿、实验页、截图                 | 被 `lib/` 或 `assets/` 引用                   |
-| `locale/`                          | 宿主与客户端                  | 包级文案（`meta.*`）                     | 放业务文案                                    |
+| 路径                               | 跑在哪                        | 能做什么                                                  | 禁止什么                                         |
+| ---------------------------------- | ----------------------------- | --------------------------------------------------------- | ------------------------------------------------ |
+| `lib/index.js`                     | 宿主（Node ESM）              | 注入行、信任栅栏、registerRoute 包装、挂载/卸载           | 写业务算法；写 handler；拼 SQL；import `assets/` |
+| `lib/routes/*.mjs`                 | 宿主（Node ESM）              | 25 条路由按组注册：assets/study/review/ai/repair/annotate | 绕开 registerRoute；自己拼响应头                 |
+| `lib/routes/shared.mjs`            | 宿主（Node ESM）              | safeSend / fail / readJson / intParam 之外的公共出口      | 直接 res.writeHead 二次写头                      |
+| `lib/routes/paths.mjs`             | 宿主（Node ESM）              | 路由路径常量唯一出口                                      | handler 里写死路径字符串                         |
+| `lib/runtime.mjs`                  | 宿主（Node ESM）              | 词典/用户库单例、前端脚本 mtime 缓存                      | 路由层状态；加载 assets 里的业务逻辑             |
+| `lib/lookup.mjs`                   | 宿主（Node ESM）              | 查词组装（词典 + 补全 + 生词本 + 警告）                   | 直接注册路由                                     |
+| `lib/http.mjs`                     | 宿主（Node ESM）              | 路由层 query 参数读值与钳制                               | 在 handler 里裸写 `Number(...)`；自己夹上下限    |
+| `lib/*.mjs`、`lib/text.js`         | 宿主（Node ESM）              | 词典、存储、排期、翻译、AI、R5、文本工具                  | import `assets/`；模块加载时开用户库             |
+| `assets/wordcard.js`               | 页面（普通 `<script>`，IIFE） | 划词判定、浮层卡片、调本插件路由                          | import/export、`require`、`process`、改正文      |
+| `assets/annotate.js`               | 页面（普通 `<script>`，IIFE） | 给已学词加虚线下划线                                      | 同上；标代码块/流式内容/其它插件弹窗             |
+| `assets/dashboard.js`              | DSH 客户端（React 模块）      | 左栏入口、学习页、客户端 locale                           | Node API；ESM import；直连 SQLite                |
+| `data/ecdict.db`                   | 只读                          | ECDICT 精简词典，可重建                                   | 写入；提交进 git                                 |
+| `$DSH_HOME/dsh-word-learn/user.db` | 只经 `lib/store.mjs`          | 生词本、卡片、复习日志、设置                              | 测试直连真实库                                   |
+| `$DSH_HOME/dsh-word-learn/cache/`  | 可删                          | 翻译缓存（发音不走网络，没有音频缓存）                    | 当持久数据依赖                                   |
+| `scripts/test-*.mjs`               | Node（手跑）                  | 回归脚本，可单独执行                                      | 真实网络、真实用户库                             |
+| `tests/`                           | Node（`node --test`）         | 新增功能的单测                                            | 同上                                             |
+| `design/`、`lab/`                  | 不运行                        | 历史设计稿、实验页、截图                                  | 被 `lib/` 或 `assets/` 引用                      |
+| `locale/`                          | 宿主与客户端                  | 包级文案（`meta.*`）                                      | 放业务文案                                       |
 
 分文件是因为"改翻译不碰排期"：词汇、存储、排期、外部能力（`translate`/`enrich`/`ai-enrich`/`models`）各一层，新模块照这个切法起名。
 发音在 `assets/voice.js`（纯浏览器 speechSynthesis，零网络），没有服务端模块。
@@ -142,9 +147,12 @@ const limit = intParam(url, 'limit', { fallback: 200, min: 1, max: 500, floor: t
 `max-lines` 按**代码行**算：空行和注释不计。所以预算衡量的是"代码有多复杂"，不是"文件多长"，
 注释写得多不会报警。默认 400；已豁免的都在 `eslint.config.js` 的 `CODE_BUDGET`，每一条都是历史债：
 
-| 文件                  | 预算    | 现状                              |
+| 文件                  | 预算    | 现状（代码行）                    |
 | --------------------- | ------- | --------------------------------- |
-| `lib/index.js`        | 1200    | 路由注册表 + 栅栏 + 响应出口      |
+| `lib/index.js`        | 210     | 入口：注入行 + 栅栏 + 挂载/卸载   |
+| `lib/routes/*.mjs`    | 400     | 六组路由，单组最重约 234 行       |
+| `lib/runtime.mjs`     | 400     | 单例 + 三段脚本缓存               |
+| `lib/lookup.mjs`      | 400     | 查词组装                          |
 | `lib/store.mjs`       | 800     | schema + migrate + 全部用户库读写 |
 | `lib/ai-enrich.mjs`   | 620     | 分析 / 义项 / 队列 / 出题         |
 | `assets/dashboard.js` | 3400    | 学习页四视图 + CSS，最大          |
