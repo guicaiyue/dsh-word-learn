@@ -5,8 +5,8 @@
 // 它们，不拥有它们。
 //
 // 阶段 2 起前端全部并入 bundle，这里不再有 assets 的 mtime 加载器。
-import { Dictionary } from './dict.mjs'
-import { Store } from './host/store.js'
+import { Dictionary } from './dict.js'
+import { Store } from './store.js'
 
 // 进程内单例：词典与用户库都要复用（打开 SQLite 有成本）
 export const dict = new Dictionary()

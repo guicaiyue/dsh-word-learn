@@ -15,7 +15,7 @@ import { describe, test } from 'node:test'
 import assert from 'node:assert/strict'
 
 import { clampInt as clampIntFromHttp } from '../../lib/host/http.js'
-import { clampInt } from '../../lib/routes/shared.mjs'
+import { clampInt } from '../../lib/host/routes/shared.js'
 
 describe('clampInt', () => {
   test('实现归口在 lib/http.mjs，shared.mjs 的再导出是同一个函数', () => {
@@ -80,7 +80,7 @@ describe('body 数字字段全部收编（含 lib/r5.mjs）', () => {
   const read = (rel) => readFileSync(new URL(rel, import.meta.url), 'utf8')
 
   test('repair / review / r5 都不再裸写 Number(payload.x)', () => {
-    for (const rel of ['../../lib/routes/repair.mjs', '../../lib/routes/review.mjs']) {
+    for (const rel of ['../../src/host/routes/repair.ts', '../../src/host/routes/review.ts']) {
       const hits = read(rel).match(/Number\(payload\./g) || []
       assert.equal(hits.length, 0, `${rel} 里还有裸 Number(payload.x)，应改用 clampInt`)
     }

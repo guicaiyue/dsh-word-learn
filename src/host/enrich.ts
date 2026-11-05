@@ -13,6 +13,32 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 
+/** 一条例句。 */
+export interface EnrichExample {
+  pos: string
+  text: string
+  definition: string
+}
+
+/** 外部词典抽出来的增强数据。 */
+export interface EnrichData {
+  phonetic?: string
+  phonetics: string[]
+  examples: EnrichExample[]
+  synonyms: string[]
+}
+
+/** enrich 的出参（永不抛异常：失败时 ok:false + error）。 */
+export interface EnrichResult {
+  ok: boolean
+  phonetic?: string
+  phonetics?: string[]
+  examples: EnrichExample[]
+  synonyms: string[]
+  cached?: string
+  error?: string
+}
+
 const API_BASE = 'https://api.dictionaryapi.dev/api/v2/entries/en'
 const TIMEOUT_MS = 6000
 const CACHE_MAX = 500
@@ -21,13 +47,13 @@ const CACHE_MAX = 500
 const DSH_HOME = process.env.DSH_HOME || path.join(os.homedir(), '.dsh')
 const CACHE_DIR = path.join(DSH_HOME, 'dsh-word-learn', 'cache')
 
-const memory = new Map()
+const memory = new Map<string, EnrichResult>()
 
-function cacheKey(word) {
+function cacheKey(word: unknown): string {
   return String(word || '').toLowerCase()
 }
 
-function readDiskCache(word) {
+function readDiskCache(word: string): EnrichResult | null {
   try {
     const file = path.join(CACHE_DIR, `${cacheKey(word).replace(/[^a-z0-9-]/g, '_')}.json`)
     if (!fs.existsSync(file)) return null
@@ -40,7 +66,7 @@ function readDiskCache(word) {
   }
 }
 
-function writeDiskCache(word, data) {
+function writeDiskCache(word: string, data: EnrichResult): void {
   try {
     fs.mkdirSync(CACHE_DIR, { recursive: true })
     const file = path.join(CACHE_DIR, `${cacheKey(word).replace(/[^a-z0-9-]/g, '_')}.json`)
@@ -51,7 +77,7 @@ function writeDiskCache(word, data) {
 }
 
 /** 带超时的 fetch。 */
-async function fetchJson(url) {
+async function fetchJson(url: string): Promise<unknown> {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS)
   try {
@@ -74,12 +100,12 @@ async function fetchJson(url) {
  *   - 例句（每个词性取前 2 条，带释义，够用就好）
  *   - 同义词（去重取前 8 个）
  */
-function extract(entries) {
+function extract(entries: unknown): EnrichData | null {
   if (!Array.isArray(entries) || !entries.length) return null
 
-  const phonetics = []
-  const examples = []
-  const synonyms = new Set()
+  const phonetics: string[] = []
+  const examples: EnrichExample[] = []
+  const synonyms = new Set<string>()
 
   for (const entry of entries) {
     for (const p of entry.phonetics || []) {
@@ -117,18 +143,18 @@ function extract(entries) {
  * 取一个词的例句与同义词。**永远不抛异常**——失败返回空结构。
  * `{ ok, examples, synonyms, cached, error }`
  */
-export async function enrich(word) {
+export async function enrich(word: unknown): Promise<EnrichResult> {
   const key = cacheKey(word)
   if (!key) return { ok: false, examples: [], synonyms: [], error: '空词' }
 
   if (memory.has(key)) {
-    return { ...memory.get(key), cached: 'memory' }
+    return { ...memory.get(key)!, cached: 'memory' }
   }
 
   const disk = readDiskCache(key)
   if (disk) {
     memory.set(key, disk)
-    if (memory.size > CACHE_MAX) memory.delete(memory.keys().next().value)
+    if (memory.size > CACHE_MAX) memory.delete(memory.keys().next().value!)
     return { ...disk, cached: 'disk' }
   }
 
@@ -145,9 +171,9 @@ export async function enrich(word) {
     const result = { ok: true, ...data }
     writeDiskCache(key, result)
     memory.set(key, result)
-    if (memory.size > CACHE_MAX) memory.delete(memory.keys().next().value)
+    if (memory.size > CACHE_MAX) memory.delete(memory.keys().next().value!)
     return result
-  } catch (err) {
+  } catch (err: any) {
     const message =
       err && err.name === 'AbortError' ? '请求超时' : (err && err.message) || String(err)
     return { ok: false, examples: [], synonyms: [], error: message }
@@ -155,12 +181,12 @@ export async function enrich(word) {
 }
 
 /** 批量预热（可选，用于复习页）。并发限制在 3，别把接口打爆。 */
-export async function enrichMany(words) {
-  const out = {}
+export async function enrichMany(words: unknown[]): Promise<Record<string, EnrichResult>> {
+  const out: Record<string, EnrichResult> = {}
   const queue = [...new Set(words.map(cacheKey).filter(Boolean))]
   const workers = Array.from({ length: Math.min(3, queue.length) }, async () => {
     while (queue.length) {
-      const word = queue.shift()
+      const word = queue.shift()!
       out[word] = await enrich(word)
     }
   })

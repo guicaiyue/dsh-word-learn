@@ -2,7 +2,30 @@
 //
 // 从 ai-enrich.mjs 拆出来的（2026-11-05，原文件超 CODE_BUDGET）。
 // 纯函数：store 只是可选依赖（拿同频段词凑干扰项），不写库、不排队。
-import { shuffle, splitTranslation } from './text.mjs'
+import { shuffle, splitTranslation } from './text.js'
+
+/** 一个选项。 */
+export interface QuizOption {
+  text: string
+  correct: boolean
+}
+
+/** 一道选择题。 */
+export interface Quiz {
+  options: QuizOption[]
+  correctCount: number
+  totalCount: number
+}
+
+/** 生成干扰项时用到的 Store 能力。 */
+interface QuizStore {
+  randomTranslations(word: unknown, count?: number): string[]
+}
+
+/** word_meta 里本模块读取的部分。 */
+interface QuizMeta {
+  distractors?: unknown
+}
 
 // ---------------------------------------------------------------- 选择题生成
 
@@ -18,7 +41,12 @@ import { shuffle, splitTranslation } from './text.mjs'
  *   - 如果 distractors 不够，从同频段的其他词的释义里凑
  *   - 总选项数 5-7 个，正确占 2-3 个
  */
-export function generateQuiz(word, translation, meta, store) {
+export function generateQuiz(
+  word: unknown,
+  translation: unknown,
+  meta: QuizMeta | null | undefined,
+  store: QuizStore | null | undefined,
+): Quiz | null {
   const senses = splitTranslation(translation)
   if (!senses.length) return null
 
@@ -27,7 +55,7 @@ export function generateQuiz(word, translation, meta, store) {
   const correct = correctTexts.map((text) => ({ text, correct: true }))
 
   // 错误选项：优先用 AI 生成的干扰项
-  let distractors = []
+  let distractors: QuizOption[] = []
   if (meta && Array.isArray(meta.distractors)) {
     distractors = meta.distractors
       .filter((d) => !correctTexts.some((c) => c.includes(d) || d.includes(c)))

@@ -15,7 +15,7 @@ import { useTempHome } from '../helpers/tmp-home.mjs'
 // 关键时序：先造临时 DSH_HOME，再动态 import 队列（静态 import 会被提升到前面）。
 const tmp = useTempHome('dwl-queue-unit-')
 const { disposeQueues, enqueueAnalysis, enqueueSenseAnalysis } =
-  await import('../../lib/enrich/queue.mjs')
+  await import('../../lib/host/enrich/queue.js')
 after(() => tmp.cleanup())
 
 /** 等 predicate 成立，超时给可读失败信息（而不是让测试静默挂住）。 */

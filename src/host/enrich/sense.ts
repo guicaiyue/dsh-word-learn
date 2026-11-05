@@ -4,8 +4,46 @@
 // word_meta 是**词级**的；补记卡问的是「这句话里它是哪个义项」，那是**义项级**的问题，
 // 需要另一套材料与更严的闸门（模型最爱在这里编义项、编例句、编词源）。
 // 与词级分析共用 llm.mjs 的调用层，但提示词、归一化、失败降级全部独立。
-import { AnalysisError, runModel } from './llm.mjs'
-import { contains, shuffle, splitTranslation } from './text.mjs'
+import type { ResolvedAiModel } from '../models.js'
+import { AnalysisError, runModel } from './llm.js'
+import { contains, shuffle, splitTranslation } from './text.js'
+
+/** 义项分析的输入。 */
+export interface SenseInput {
+  word?: unknown
+  translation?: unknown
+  sentence?: unknown
+  definition?: unknown
+}
+
+/** 模型原始输出里本模块读取的字段（外部未类型化输入）。 */
+interface SenseParsed {
+  sense_here?: unknown
+  likely_assumed?: unknown
+  why_confusable?: unknown
+  contrast?: unknown
+  confidence?: unknown
+  personal_example?: unknown
+  cloze?: unknown
+  other_sense?: { sentence?: unknown; gloss?: unknown } | null
+  etymology_note?: unknown
+}
+
+/** 归一化后的义项材料（sense_meta.json 的结构 + 质量标记）。 */
+export interface SenseMetaResult {
+  sense_here: string
+  likely_assumed: string | undefined
+  why_confusable: string
+  contrast: string
+  options: Array<{ text: string; correct: boolean }>
+  personal_example: string
+  cloze: string
+  other_sense: { sentence: string; gloss: string } | null
+  etymology_note: string
+  confidence: string
+  degraded: string[]
+  analyzedAt: number
+}
 
 // ---------------------------------------------------------------- 义项分析
 //
@@ -44,7 +82,7 @@ const SENSE_SYSTEM_PROMPT = [
   '7. 只输出 JSON，不要 markdown 代码块，不要解释文字。',
 ].join('\n')
 
-function buildSensePrompt({ word, translation, sentence, definition }) {
+function buildSensePrompt({ word, translation, sentence, definition }: SenseInput): string {
   const parts = [`单词：${word}`]
   if (sentence) parts.push(`他遇见它的原句：${sentence}`)
   if (translation)
@@ -60,7 +98,11 @@ function buildSensePrompt({ word, translation, sentence, definition }) {
  * @returns {Promise<object>} 归一化后的 sense_meta（含 quality 标记）
  * @throws {AnalysisError} 模型不可用、输出不是 JSON 等
  */
-export async function analyzeSense(ctx, { word, translation, sentence, definition }, selection) {
+export async function analyzeSense(
+  ctx: unknown,
+  { word, translation, sentence, definition }: SenseInput,
+  selection?: ResolvedAiModel | null,
+): Promise<SenseMetaResult> {
   const raw = await runModel(ctx, {
     system: SENSE_SYSTEM_PROMPT,
     prompt: buildSensePrompt({ word, translation, sentence, definition }),
@@ -84,7 +126,10 @@ export async function analyzeSense(ctx, { word, translation, sentence, definitio
  *
  * 返回 null 表示不可用；返回对象时 `degraded` 列出被清掉的字段。
  */
-export function normalizeSenseMeta(parsed, { word, translation } = {}) {
+export function normalizeSenseMeta(
+  parsed: SenseParsed | null | undefined,
+  { word, translation }: { word?: unknown; translation?: unknown } = {},
+): SenseMetaResult | null {
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null
   if (!('sense_here' in parsed)) return null
 
@@ -97,7 +142,7 @@ export function normalizeSenseMeta(parsed, { word, translation } = {}) {
   }
 
   const w = String(word || '').toLowerCase()
-  const degraded = []
+  const degraded: string[] = []
   const confidence = parsed.confidence === 'high' ? 'high' : 'low'
 
   let example = String(parsed.personal_example || '').trim()
@@ -138,8 +183,8 @@ export function normalizeSenseMeta(parsed, { word, translation } = {}) {
 
   // 选项不让模型直接给：模型标"哪个对"经常错位。
   // 这里用它给的两个错误义项 + 词典义项原子凑 3 个，正确项就是 sense_here。
-  const wrongs = []
-  const pushWrong = (value) => {
+  const wrongs: string[] = []
+  const pushWrong = (value: unknown): void => {
     const t = String(value || '')
       .trim()
       .slice(0, 40)
@@ -187,7 +232,7 @@ export function normalizeSenseMeta(parsed, { word, translation } = {}) {
 }
 
 /** 句子是否包含这个词（允许 -s/-ed/-ing 这类变形）。 */
-function hasWordForm(sentence, word) {
+function hasWordForm(sentence: unknown, word: unknown): boolean {
   const s = String(sentence || '').toLowerCase()
   const w = String(word || '').toLowerCase()
   if (!s || !w) return false
@@ -203,7 +248,7 @@ function hasWordForm(sentence, word) {
 }
 
 /** 把句子里的目标词替换成挖空标记（保留长度感的空格）。 */
-function blankOutWord(sentence, word) {
+function blankOutWord(sentence: string, word: string): string {
   if (!word) return ''
   const i = String(sentence).toLowerCase().indexOf(String(word).toLowerCase())
   if (i < 0) return ''
@@ -211,7 +256,7 @@ function blankOutWord(sentence, word) {
 }
 
 /** 去掉词性前缀：n. / v. / a. / [计] 这类。 */
-function stripPos(s) {
+function stripPos(s: unknown): string {
   let t = String(s || '').trim()
   const dot = t.indexOf('.')
   if (dot > 0 && dot <= 2 && /^[a-z]+$/.test(t.slice(0, dot))) t = t.slice(dot + 1).trim()
@@ -221,8 +266,8 @@ function stripPos(s) {
 }
 
 /** 把 ECDICT 的多行释义拆成一个个义项原子（"n. 解析, 决心, 决议" → 解析/决心/决议）。 */
-function senseAtoms(translation) {
-  const out = []
+function senseAtoms(translation: unknown): string[] {
+  const out: string[] = []
   for (const line of splitTranslation(translation)) {
     for (const part of String(line).split(/[,，;；]/)) {
       const s0 = stripPos(part).slice(0, 40)

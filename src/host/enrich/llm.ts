@@ -7,15 +7,59 @@
 //
 // 为什么单独一层：AnalysisError / FAILURE_HINTS / reason 是分析、义项、队列共用的
 // 错误语义。放回任一业务文件，另一个就得 import 业务文件——那正是要避免的方向。
-import { getService } from '../host/service.js'
-import { resolveAiModel } from '../host/models.js'
+import { getService, type ServiceHost } from '../service.js'
+import { resolveAiModel, type ResolvedAiModel } from '../models.js'
+
+/** runModel 的入参（提示词与模型选择）。 */
+interface RunModelOptions {
+  system: string
+  prompt: string
+  selection?: ResolvedAiModel | null
+}
+
+/** 适配器给的失败描述。 */
+interface LlmFailure {
+  code?: unknown
+  message?: unknown
+  status?: unknown
+}
+
+/** 适配器给的终止信息。 */
+interface LlmFinish {
+  kind?: unknown
+  failure?: LlmFailure
+}
+
+/** 流式 chunk 里本模块读取的字段。 */
+interface LlmChunk {
+  type?: unknown
+  text?: unknown
+  reason?: LlmFinish
+}
+
+/** 一次模型调用句柄（DSH 适配器的返回，外部边界）。 */
+interface LlmCall {
+  config?: Record<string, unknown>
+  stream(options: unknown): AsyncIterable<LlmChunk>
+}
+
+/** llm 服务里本模块用到的部分。 */
+interface LlmService {
+  prepareCall(
+    request: unknown,
+    signal: AbortSignal,
+    mapControls: (controls: unknown) => unknown,
+  ): Promise<LlmCall | null>
+}
 
 /** 单次分析的超时。够慢模型跑完，又不至于让「重新分析」按钮一直转。 */
 const ANALYSIS_TIMEOUT_MS = 45000
 
 /** 分析失败。code 给调用方分流，message 直接给用户看。 */
 export class AnalysisError extends Error {
-  constructor(message, code = 'ANALYSIS_FAILED') {
+  code: string
+
+  constructor(message: string, code = 'ANALYSIS_FAILED') {
     super(message)
     this.name = 'AnalysisError'
     this.code = code
@@ -23,7 +67,7 @@ export class AnalysisError extends Error {
 }
 
 /** 模型失败码 → 人话。没列到的码直接把原始 message 给出去。 */
-const FAILURE_HINTS = {
+const FAILURE_HINTS: Record<string, string> = {
   NO_ADAPTER: '模型路由没注册（provider 名对不上）',
   MISSING_CREDENTIAL: '没有配置 API Key',
   INVALID_CREDENTIAL: 'API Key 格式不合法',
@@ -51,8 +95,11 @@ const RETRYABLE = new Set(['TRUNCATED', 'EMPTY_RESPONSE'])
  * 为什么分开：`parseResponse` 过去顺手把结果归一化成 word_meta，义项分析
  * 用同一套字段校验会被直接判成"不是合法 JSON"。
  */
-export async function runModel(ctx, { system, prompt, selection }) {
-  const llm = getService(ctx, 'llm')
+export async function runModel(
+  ctx: unknown,
+  { system, prompt, selection }: RunModelOptions,
+): Promise<Record<string, unknown>> {
+  const llm = getService<LlmService>(ctx as ServiceHost | undefined, 'llm')
   if (!llm || typeof llm.prepareCall !== 'function') {
     throw new AnalysisError(
       'DSH 的模型服务不可用（插件拿不到 ctx.llm），AI 分析没法发起',
@@ -60,7 +107,7 @@ export async function runModel(ctx, { system, prompt, selection }) {
     )
   }
 
-  const chosen = selection || (await resolveAiModel(ctx, null))
+  const chosen = selection || (await resolveAiModel(ctx as ServiceHost | undefined, null))
   if (!chosen || !chosen.provider || !chosen.model) {
     throw new AnalysisError('没有可用的模型：DSH 模型目录为空，会话也没有默认模型', 'NO_MODEL')
   }
@@ -73,7 +120,7 @@ export async function runModel(ctx, { system, prompt, selection }) {
   }, ANALYSIS_TIMEOUT_MS)
 
   try {
-    let lastError = null
+    let lastError: unknown = null
     for (let attempt = 0; attempt < 2; attempt++) {
       try {
         return await runAttempt({
@@ -98,8 +145,24 @@ export async function runModel(ctx, { system, prompt, selection }) {
 }
 
 /** 跑一次完整的模型调用：准备 → 流式收文本 → 解析出原始 JSON。 */
-async function runAttempt({ llm, chosen, system, prompt, signal, maxTokens, state }) {
-  let call
+async function runAttempt({
+  llm,
+  chosen,
+  system,
+  prompt,
+  signal,
+  maxTokens,
+  state,
+}: {
+  llm: LlmService
+  chosen: ResolvedAiModel
+  system: string
+  prompt: string
+  signal: AbortSignal
+  maxTokens: number
+  state: { timedOut: boolean }
+}): Promise<Record<string, unknown>> {
+  let call: LlmCall | null = null
   try {
     call = await llm.prepareCall(
       { provider: chosen.provider, model: chosen.model, maxTokens },
@@ -114,7 +177,9 @@ async function runAttempt({ llm, chosen, system, prompt, signal, maxTokens, stat
     throw new AnalysisError(`模型 ${label(chosen)} 没有返回可用的调用句柄`, 'NO_STREAM')
   }
 
-  const messages = [{ role: 'user', content: [{ type: 'text', text: prompt }] }]
+  const messages: Array<{ role: string; content: Array<{ type: string; text: string }> }> = [
+    { role: 'user', content: [{ type: 'text', text: prompt }] },
+  ]
   const options = {
     ...call.config,
     messages,
@@ -123,7 +188,7 @@ async function runAttempt({ llm, chosen, system, prompt, signal, maxTokens, stat
   }
 
   let out = ''
-  let finish = null
+  let finish: LlmFinish | null | undefined = null
   try {
     for await (const chunk of call.stream(options)) {
       if (!chunk) continue
@@ -163,7 +228,7 @@ async function runAttempt({ llm, chosen, system, prompt, signal, maxTokens, stat
   return parsed
 }
 
-function timeoutError(chosen) {
+function timeoutError(chosen: ResolvedAiModel): AnalysisError {
   return new AnalysisError(
     `模型 ${label(chosen)} 超过 ${Math.round(ANALYSIS_TIMEOUT_MS / 1000)} 秒没返回，已中止`,
     'TIMEOUT',
@@ -172,17 +237,18 @@ function timeoutError(chosen) {
 
 // ---------------------------------------------------------------- 内部
 
-function label(chosen) {
+function label(chosen: ResolvedAiModel): string {
   return `${chosen.provider}/${chosen.model}`
 }
 
-export function reason(err) {
-  return (err && (err.message || String(err))) || '未知错误'
+export function reason(err: unknown): string {
+  const e = err as { message?: unknown } | null
+  return ((e && (e.message || String(err))) as string) || '未知错误'
 }
 
 /** 把 LLM 的终止失败翻译成人话。 */
-function failureError(failure, chosen) {
-  const f = failure || {}
+function failureError(failure: LlmFailure | undefined, chosen: ResolvedAiModel): AnalysisError {
+  const f: LlmFailure = failure || {}
   const code = String(f.code || 'LLM_ERROR')
   const hint = FAILURE_HINTS[code] || f.message || '模型调用失败'
   const raw = f.message && f.message !== hint ? `：${f.message}` : ''
@@ -191,13 +257,13 @@ function failureError(failure, chosen) {
 }
 
 /** 截断回显，用来判断模型到底吐了什么。 */
-function preview(text) {
+function preview(text: unknown): string {
   const oneLine = String(text).replace(/\s+/g, ' ').trim()
   return oneLine.length > 120 ? oneLine.slice(0, 120) + '…' : oneLine
 }
 
 /** 从模型输出里抠出原始 JSON 对象（不做字段校验）。 */
-export function extractJson(text) {
+export function extractJson(text: unknown): Record<string, unknown> | null {
   if (!text) return null
 
   const raw = String(text).trim()
@@ -223,16 +289,16 @@ export function extractJson(text) {
   return null
 }
 
-function parseJson(text) {
+function parseJson(text: string): Record<string, unknown> | null {
   try {
-    return JSON.parse(text)
+    return JSON.parse(text) as Record<string, unknown>
   } catch {
     return null
   }
 }
 
 /** 从任意文本里抠出第一个括号配平的 JSON 对象；跳过字符串里的括号与转义。 */
-function extractFirstObject(text) {
+function extractFirstObject(text: string): string | null {
   const start = text.indexOf('{')
   if (start < 0) return null
   let depth = 0

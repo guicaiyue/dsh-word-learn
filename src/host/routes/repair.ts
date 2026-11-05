@@ -3,25 +3,30 @@
 // repair 是「记债」的出口：评分写库成功但记账失败时留给这里补。
 // R5 只记日志、不动 FSRS 排期（r5.mjs 的约束）。
 
-import { store } from '../runtime.mjs'
-import { intParam } from '../host/http.js'
-import { enqueueSenseAnalysis } from '../ai-enrich.mjs'
-import { buildRecap, submitRecap } from '../host/r5.js'
+import { store } from '../runtime.js'
+import { intParam } from '../http.js'
+import { enqueueSenseAnalysis } from '../ai-enrich.js'
+import { buildRecap, submitRecap } from '../r5.js'
+import type { RepairEntry } from '../store/review.js'
 import {
   API_RECAP,
   API_REPAIR,
   API_REPAIR_CLEAR,
   API_REPAIR_LOG,
   API_REPAIR_STATS,
-} from './paths.mjs'
-import { clampInt, fail, readJson, sendJson, unavailable } from './shared.mjs'
+} from './paths.js'
+import { clampInt, fail, readJson, sendJson, unavailable } from './shared.js'
+import type { RegisterRoute, RouteContext } from './shared.js'
 
 /**
  * @param {Function} registerRoute 带栅栏 / methods 白名单 / 500 兜底的注册器
  * @returns {Array<Function>} 卸载函数
  */
-export function registerRepairRoutes(registerRoute, ctx) {
-  const disposers = []
+export function registerRepairRoutes(
+  registerRoute: RegisterRoute,
+  ctx: RouteContext,
+): Array<() => void> {
+  const disposers: Array<() => void> = []
 
   // 补记卡：义项材料 + 原句 + 债。前端按「忘了」时才拉，不预热整轮队列。
 
@@ -42,13 +47,22 @@ export function registerRepairRoutes(registerRoute, ctx) {
             unavailable(res, store)
             return
           }
-          const row = store.db
-            .prepare(
+          const row = store
+            .db!.prepare(
               `SELECT c.id AS card_id, c.word_id, c.track, w.word, w.translation, w.phonetic
                      FROM cards c JOIN words w ON w.id = c.word_id
                     WHERE c.id = ?`,
             )
-            .get(cardId)
+            .get(cardId) as
+            | {
+                card_id: number
+                word_id: number
+                track: string
+                word: string
+                translation: string | null
+                phonetic: string | null
+              }
+            | undefined
           if (!row) {
             sendJson(res, 404, { ok: false, error: '找不到这张卡' })
             return
@@ -88,7 +102,7 @@ export function registerRepairRoutes(registerRoute, ctx) {
       path: API_REPAIR_LOG,
       methods: ['POST'],
       handler: async (req, res) => {
-        let payload
+        let payload!: Record<string, unknown>
         try {
           payload = await readJson(req)
         } catch (err) {
@@ -105,7 +119,8 @@ export function registerRepairRoutes(registerRoute, ctx) {
             unavailable(res, store)
             return
           }
-          const row = store.db.prepare('SELECT word_id FROM cards WHERE id = ?').get(cardId)
+          const row = store.db!.prepare('SELECT word_id FROM cards WHERE id = ?').get(cardId) as
+            { word_id: number } | undefined
           if (!row) {
             sendJson(res, 404, { ok: false, error: '找不到这张卡' })
             return
@@ -117,7 +132,7 @@ export function registerRepairRoutes(registerRoute, ctx) {
             ok: payload.ok,
             guess: payload.guess,
             elapsedMs: payload.elapsedMs,
-          })
+          } as RepairEntry)
           sendJson(res, 200, { ok: true })
         } catch (err) {
           fail(res, 500, 'INTERNAL_ERROR', '服务暂时不可用，请稍后重试', err)
@@ -134,7 +149,7 @@ export function registerRepairRoutes(registerRoute, ctx) {
       path: API_REPAIR_CLEAR,
       methods: ['POST'],
       handler: async (req, res) => {
-        let payload
+        let payload!: Record<string, unknown>
         try {
           payload = await readJson(req)
         } catch (err) {
@@ -149,7 +164,8 @@ export function registerRepairRoutes(registerRoute, ctx) {
           let wordId = clampInt(payload.wordId)
           const cardId = clampInt(payload.cardId)
           if (!wordId && cardId) {
-            const row = store.db.prepare('SELECT word_id FROM cards WHERE id = ?').get(cardId)
+            const row = store.db!.prepare('SELECT word_id FROM cards WHERE id = ?').get(cardId) as
+              { word_id: number } | undefined
             wordId = row ? row.word_id : 0
           }
           if (!wordId) {
@@ -185,14 +201,14 @@ export function registerRepairRoutes(registerRoute, ctx) {
             unavailable(res, store)
             return
           }
-          const stages = store.db
-            .prepare(
+          const stages = store
+            .db!.prepare(
               `SELECT stage, COUNT(*) AS n, SUM(CASE WHEN ok = 1 THEN 1 ELSE 0 END) AS ok
                      FROM repair_log WHERE created_at >= ? GROUP BY stage`,
             )
             .all(since)
-          const debt = store.db
-            .prepare(
+          const debt = store
+            .db!.prepare(
               `SELECT COUNT(*) AS opened,
                           SUM(CASE WHEN cleared_at IS NOT NULL THEN 1 ELSE 0 END) AS cleared
                      FROM repair_debt WHERE opened_at >= ?`,
@@ -201,7 +217,7 @@ export function registerRepairRoutes(registerRoute, ctx) {
           sendJson(res, 200, {
             ok: true,
             days,
-            stages: stages.map((s) => ({
+            stages: (stages as Array<Record<string, unknown>>).map((s) => ({
               stage: s.stage,
               n: Number(s.n) || 0,
               ok: Number(s.ok) || 0,
@@ -234,7 +250,7 @@ export function registerRepairRoutes(registerRoute, ctx) {
             return
           }
           if (req.method === 'POST') {
-            let payload
+            let payload!: Record<string, unknown>
             try {
               payload = await readJson(req)
             } catch (err) {

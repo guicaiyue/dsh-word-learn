@@ -12,14 +12,43 @@
 //   catch 吞成一条 console.warn，不写库、也不影响已经发出的响应。
 //   热重挂（同一进程重新 apply）时模块不会重新实例化，靠下次 enqueue 重新武装
 //   队列（见 rearmIfDisposed），否则 disposed 永远为 true，AI 分析静默失效。
-import { resolveAiModel } from '../host/models.js'
-import { analyzeWord } from './analysis.mjs'
-import { analyzeSense } from './sense.mjs'
-import { reason } from './llm.mjs'
+import { resolveAiModel, type ModelSettingsStore } from '../models.js'
+import type { ServiceHost } from '../service.js'
+import type { SenseMeta, WordMeta } from '../store/words.js'
+import { analyzeWord } from './analysis.js'
+import { analyzeSense } from './sense.js'
+import { reason } from './llm.js'
+
+/** 队列操作所需的最小 Store 能力（lib/store.mjs 的 Store 满足它）。 */
+export interface QueueStore extends ModelSettingsStore {
+  getMeta(word: unknown): WordMeta | null
+  setMeta(word: unknown, meta: unknown): boolean
+  getSenseMeta(word: unknown): SenseMeta | null
+  setSenseMeta(word: unknown, meta: SenseMeta): boolean
+}
+
+/** 一个词级分析任务。 */
+export interface WordJob {
+  ctx: unknown
+  store: QueueStore
+  word: string
+  translation: string
+  definition: string
+}
+
+/** 一个义项分析任务。 */
+export interface SenseJob {
+  ctx: unknown
+  store: QueueStore
+  word: string
+  translation: string
+  sentence: string
+  definition?: string
+}
 
 // ---------------------------------------------------------------- 队列
 
-const pending = []
+const pending: WordJob[] = []
 let running = false
 // 队列上限：划词卡片一多，一次能塞几十上百个词进来；不设上限会一直占内存、
 // 而且插件卸载后还在后台跑（会重开 DB 句柄）。
@@ -47,7 +76,7 @@ function rearmIfDisposed() {
 }
 
 /** 插件卸载时调用：清空待办并让循环退出。下次 enqueue 会重新武装（见 rearmIfDisposed）。 */
-export function disposeQueues() {
+export function disposeQueues(): void {
   disposed.word = true
   disposed.sense = true
   pending.length = 0
@@ -61,7 +90,13 @@ export function disposeQueues() {
  * 不等待完成——调用方（touch）fire-and-forget。
  * 队列串行执行，一个接一个，不打爆配额。
  */
-export function enqueueAnalysis(ctx, store, word, translation, definition) {
+export function enqueueAnalysis(
+  ctx: unknown,
+  store: QueueStore,
+  word: string,
+  translation: string,
+  definition: string,
+): void {
   // 已有 meta 的不重复分析
   const existing = store.getMeta(word)
   if (existing && existing.analyzedAt) return
@@ -76,19 +111,19 @@ export function enqueueAnalysis(ctx, store, word, translation, definition) {
   drainQueue()
 }
 
-async function drainQueue() {
+async function drainQueue(): Promise<void> {
   if (running) return
   running = true
   try {
     while (pending.length && !disposed.word) {
-      const job = pending.shift()
+      const job = pending.shift()!
       try {
         // 再查一次，避免并发场景下重复分析
         const existing = job.store.getMeta(job.word)
         if (existing && existing.analyzedAt) continue
 
         // 模型在出队时解析：这期间用户在设置页换了模型，下一个词就用新的
-        const selection = await resolveAiModel(job.ctx, job.store)
+        const selection = await resolveAiModel(job.ctx as ServiceHost | undefined, job.store)
         const meta = await analyzeWord(
           job.ctx,
           job.word,
@@ -118,14 +153,23 @@ async function drainQueue() {
 // 和 word_meta 的队列分开：义项分析更容易失败（要判断语境义项），
 // 不能让它拖住词级分析；两者缓存也各自独立。
 
-const sensePending = []
+const sensePending: SenseJob[] = []
 let senseRunning = false
 // 失败后别每次「忘了」都重打一遍模型：同一个词 10 分钟内只试一次。
-const senseFailed = new Map()
+const senseFailed = new Map<string, number>()
 const SENSE_RETRY_MS = 10 * 60 * 1000
 
 /** 把一个 (词, 原句) 加入义项分析队列。已有分析的不重复跑。 */
-export function enqueueSenseAnalysis(ctx, store, { word, translation, sentence, definition }) {
+export function enqueueSenseAnalysis(
+  ctx: unknown,
+  store: QueueStore,
+  {
+    word,
+    translation,
+    sentence,
+    definition,
+  }: { word: string; translation: string; sentence: string; definition?: string },
+): void {
   if (!sentence) return
   rearmIfDisposed()
   if (store.getSenseMeta(word)) return
@@ -142,13 +186,13 @@ async function drainSenseQueue() {
   senseRunning = true
   try {
     while (sensePending.length && !disposed.sense) {
-      const job = sensePending.shift()
+      const job = sensePending.shift()!
       try {
         if (job.store.getSenseMeta(job.word)) continue
-        const selection = await resolveAiModel(job.ctx, job.store)
+        const selection = await resolveAiModel(job.ctx as ServiceHost | undefined, job.store)
         const meta = await analyzeSense(job.ctx, job, selection)
         if (meta) {
-          job.store.setSenseMeta(job.word, meta)
+          job.store.setSenseMeta(job.word, meta as unknown as SenseMeta)
           senseFailed.delete(job.word)
         }
       } catch (err) {

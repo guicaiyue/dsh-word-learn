@@ -29,8 +29,8 @@
 //      「限流」「没配 API Key」全糊成一句话，排查只能靠猜。
 //
 // 服务取法见 service.mjs —— 必须用 ctx.get('llm')，属性访问 ctx.llm 拿不到。
-export { AnalysisError, extractJson } from './enrich/llm.mjs'
-export { analyzeWord, parseResponse } from './enrich/analysis.mjs'
-export { analyzeSense, normalizeSenseMeta } from './enrich/sense.mjs'
-export { disposeQueues, enqueueAnalysis, enqueueSenseAnalysis } from './enrich/queue.mjs'
-export { generateQuiz } from './enrich/quiz.mjs'
+export { AnalysisError, extractJson } from './enrich/llm.js'
+export { analyzeWord, parseResponse } from './enrich/analysis.js'
+export { analyzeSense, normalizeSenseMeta } from './enrich/sense.js'
+export { disposeQueues, enqueueAnalysis, enqueueSenseAnalysis } from './enrich/queue.js'
+export { generateQuiz } from './enrich/quiz.js'

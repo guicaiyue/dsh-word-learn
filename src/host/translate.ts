@@ -17,7 +17,49 @@
 // 为什么不用官方 translator 的 Bing 后端：`edge.microsoft.com/translate/auth`
 // 实测 404，Bing 的 ttranslatev3 还要从页面里抓 token，很脆。
 
-import { getService } from './host/service.js'
+import { getService, type ServiceHost } from './service.js'
+
+/** 翻译成功的出参。 */
+export interface TranslateOk {
+  ok: true
+  text: string
+  source: string
+  cached?: boolean
+}
+
+/** 翻译失败的出参。 */
+export interface TranslateFail {
+  ok: false
+  error: string
+}
+
+/** 翻译出参（永不 throw）。 */
+export type TranslateResult = TranslateOk | TranslateFail
+
+/** translate 的可选参数。 */
+interface TranslateOptions {
+  signal?: AbortSignal
+  timeoutMs?: number
+}
+
+/** DSH llm 服务里本模块用到的部分（外部服务，只按实际读取的形状描述）。 */
+interface LlmCall {
+  config?: Record<string, unknown>
+  stream(options: unknown): AsyncIterable<{ type?: unknown; text?: unknown }>
+}
+
+interface LlmService {
+  prepareCall(
+    request: unknown,
+    signal: AbortSignal,
+    mapControls: (controls: unknown) => unknown,
+  ): Promise<LlmCall | null>
+}
+
+/** agentDefaultModel 服务里本模块用到的部分。 */
+interface AgentDefaultModelService {
+  currentSelection(): { provider?: string; model?: string } | null
+}
 
 /** 缓存上限。划词场景里同一段话常被反复选中，缓存能省掉重复请求。 */
 const CACHE_MAX = 200
@@ -28,7 +70,7 @@ const MYMEMORY_CHUNK = 450
 /** 默认超时。划词是交互场景，超过这个时间用户已经在等了。 */
 const DEFAULT_TIMEOUT_MS = 15000
 
-const CACHE = new Map()
+const CACHE = new Map<string, TranslateOk>()
 
 const SYSTEM_PROMPT = [
   '你是一个英译中的翻译器。把用户给出的英文翻译成简体中文。',
@@ -46,7 +88,7 @@ export const SOURCE_LABEL = {
   mymemory: 'MyMemory',
 }
 
-function cacheGet(text) {
+function cacheGet(text: string): TranslateOk | undefined {
   const hit = CACHE.get(text)
   if (hit === undefined) return undefined
   // 命中就挪到末尾，维持 LRU 顺序
@@ -55,25 +97,25 @@ function cacheGet(text) {
   return hit
 }
 
-function cacheSet(text, value) {
+function cacheSet(text: string, value: TranslateOk): void {
   if (CACHE.has(text)) CACHE.delete(text)
   CACHE.set(text, value)
-  while (CACHE.size > CACHE_MAX) CACHE.delete(CACHE.keys().next().value)
+  while (CACHE.size > CACHE_MAX) CACHE.delete(CACHE.keys().next().value!)
 }
 
 /** 解析一个 service（取法见 service.mjs：服务只在 ctx.get 上）。 */
-function service(ctx, name) {
-  return getService(ctx, name) || undefined
+function service<T>(ctx: unknown, name: string): T | undefined {
+  return getService<T>(ctx as ServiceHost | undefined, name) || undefined
 }
 
 /** 把长文本按句子边界切成若干块，每块不超过 `limit` 字符。 */
-function chunkText(text, limit) {
+function chunkText(text: string, limit: number): string[] {
   if (text.length <= limit) return [text]
-  const parts = []
+  const parts: string[] = []
   let rest = text
   while (rest.length > limit) {
     // 优先在句末切，其次在空格切，实在没有就硬切
-    let cut
+    let cut: number
     const window = rest.slice(0, limit)
     const sent = Math.max(
       window.lastIndexOf('. '),
@@ -98,9 +140,9 @@ function chunkText(text, limit) {
  * 用 DSH 自己的模型翻译。
  * @returns 译文，或 `null` 表示"这条路走不通"（没配模型 / 调不通），交给下一个后端。
  */
-async function viaLlm(ctx, text, signal) {
-  const llm = service(ctx, 'llm')
-  const defaults = service(ctx, 'agentDefaultModel')
+async function viaLlm(ctx: unknown, text: string, signal: AbortSignal): Promise<string | null> {
+  const llm = service<LlmService>(ctx, 'llm')
+  const defaults = service<AgentDefaultModelService>(ctx, 'agentDefaultModel')
   if (!llm || typeof llm.prepareCall !== 'function' || !defaults) return null
 
   let selection
@@ -121,7 +163,9 @@ async function viaLlm(ctx, text, signal) {
   // 消息用手搓的普通对象：`@deepseek-ai/dsh-llm` 在插件目录里解析不到
   // （插件是 junction 到 D 盘的独立项目），而适配器只读 role/content/source，
   // 不需要 id/seq。实测 dsh-llm-pi-ai 就是这么读的。
-  const messages = [{ role: 'user', content: [{ type: 'text', text }] }]
+  const messages: Array<{ role: string; content: Array<{ type: string; text: string }> }> = [
+    { role: 'user', content: [{ type: 'text', text }] },
+  ]
   const options = { ...call.config, messages, system: SYSTEM_PROMPT, signal }
 
   let out = ''
@@ -133,9 +177,9 @@ async function viaLlm(ctx, text, signal) {
 }
 
 /** 用 MyMemory 公共接口翻译，按块请求后拼接。 */
-async function viaMyMemory(text, signal) {
+async function viaMyMemory(text: string, signal: AbortSignal): Promise<string | null> {
   const chunks = chunkText(text, MYMEMORY_CHUNK)
-  const out = []
+  const out: string[] = []
   for (const chunk of chunks) {
     const url =
       'https://api.mymemory.translated.net/get?q=' +
@@ -143,7 +187,9 @@ async function viaMyMemory(text, signal) {
       '&langpair=en|zh-CN'
     const res = await fetch(url, { signal, headers: { accept: 'application/json' } })
     if (!res.ok) throw new Error('MyMemory HTTP ' + res.status)
-    const json = await res.json()
+    const json = (await res.json()) as {
+      responseData?: { translatedText?: unknown }
+    }
     const translated = json && json.responseData && json.responseData.translatedText
     if (typeof translated !== 'string') throw new Error('MyMemory 返回格式异常')
     // 额度用尽时它会把这个告警当译文返回，必须识别出来
@@ -164,7 +210,11 @@ async function viaMyMemory(text, signal) {
  *
  * @returns `{ok:true, text, source, cached}` 或 `{ok:false, error}`
  */
-export async function translate(ctx, text, { signal, timeoutMs = DEFAULT_TIMEOUT_MS } = {}) {
+export async function translate(
+  ctx: unknown,
+  text: unknown,
+  { signal, timeoutMs = DEFAULT_TIMEOUT_MS }: TranslateOptions = {},
+): Promise<TranslateResult> {
   const raw = String(text || '').trim()
   if (!raw) return { ok: false, error: '没有要翻译的内容' }
   if (raw.length > MAX_INPUT) {
@@ -178,28 +228,28 @@ export async function translate(ctx, text, { signal, timeoutMs = DEFAULT_TIMEOUT
   const local = new AbortController()
   const timer = setTimeout(() => local.abort(new Error('翻译超时')), timeoutMs)
   const combined = signal ? AbortSignal.any([signal, local.signal]) : local.signal
-  const failures = []
+  const failures: string[] = []
 
   try {
     try {
       const viaModel = await viaLlm(ctx, raw, combined)
       if (viaModel) {
-        const value = { ok: true, text: viaModel, source: 'llm' }
+        const value: TranslateOk = { ok: true, text: viaModel, source: 'llm' }
         cacheSet(raw, value)
         return value
       }
-    } catch (err) {
+    } catch (err: any) {
       failures.push('模型：' + ((err && err.message) || String(err)))
     }
 
     try {
       const viaPublic = await viaMyMemory(raw, combined)
       if (viaPublic) {
-        const value = { ok: true, text: viaPublic, source: 'mymemory' }
+        const value: TranslateOk = { ok: true, text: viaPublic, source: 'mymemory' }
         cacheSet(raw, value)
         return value
       }
-    } catch (err) {
+    } catch (err: any) {
       failures.push('MyMemory：' + ((err && err.message) || String(err)))
     }
 
@@ -211,11 +261,11 @@ export async function translate(ctx, text, { signal, timeoutMs = DEFAULT_TIMEOUT
 }
 
 /** 供 dashboard / 自检报告用的状态快照。 */
-export function translateStatus() {
+export function translateStatus(): { cacheSize: number; maxInput: number; sources: string[] } {
   return { cacheSize: CACHE.size, maxInput: MAX_INPUT, sources: Object.keys(SOURCE_LABEL) }
 }
 
 /** 仅供测试：清空缓存。 */
-export function clearTranslateCache() {
+export function clearTranslateCache(): void {
   CACHE.clear()
 }

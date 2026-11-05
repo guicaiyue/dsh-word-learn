@@ -3,12 +3,13 @@
 // 这些路由的公共形态：先 parse 参数（数字走 http.mjs 的 intParam），
 // 再 store.open() 判据，最后统一走 sendJson / fail 出口。
 
-import { dict, store } from '../runtime.mjs'
-import { intParam, strParam } from '../host/http.js'
-import { classifySelection, looksLikeWord, pickBest, splitWords } from '../host/text.js'
-import { enqueueLookupFollowUps, lookupWord } from '../lookup.mjs'
-import { cardStates } from '../host/schedule.js'
-import { translate, translateStatus } from '../translate.mjs'
+import { dict, store } from '../runtime.js'
+import { intParam, strParam } from '../http.js'
+import { classifySelection, looksLikeWord, pickBest, splitWords } from '../text.js'
+import { enqueueLookupFollowUps, lookupWord } from '../lookup.js'
+import { cardStates } from '../schedule.js'
+import { translate, translateStatus } from '../translate.js'
+import type { WordPatch } from '../store/words.js'
 import {
   API_LIST,
   API_LOOKUP,
@@ -17,15 +18,19 @@ import {
   API_TRANSLATE,
   API_UPDATE,
   API_WORD,
-} from './paths.mjs'
-import { fail, isFalse, readJson, safeSend, sendJson } from './shared.mjs'
+} from './paths.js'
+import { fail, isFalse, readJson, safeSend, sendJson } from './shared.js'
+import type { RegisterRoute, RouteContext } from './shared.js'
 
 /**
  * @param {Function} registerRoute 带栅栏 / methods 白名单 / 500 兜底的注册器
  * @returns {Array<Function>} 卸载函数
  */
-export function registerStudyRoutes(registerRoute, ctx) {
-  const disposers = []
+export function registerStudyRoutes(
+  registerRoute: RegisterRoute,
+  ctx: RouteContext,
+): Array<() => void> {
+  const disposers: Array<() => void> = []
 
   // 查词
 
@@ -35,7 +40,7 @@ export function registerStudyRoutes(registerRoute, ctx) {
       path: API_LOOKUP,
       methods: ['GET', 'POST'],
       handler: async (req, res) => {
-        let payload
+        let payload!: Record<string, unknown>
         try {
           payload =
             req.method === 'POST'
@@ -79,7 +84,8 @@ export function registerStudyRoutes(registerRoute, ctx) {
           } catch (err) {
             try {
               console.warn(
-                '[dsh-word-learn] 查词后入队失败：' + ((err && err.message) || String(err)),
+                '[dsh-word-learn] 查词后入队失败：' +
+                  String((err as { message?: unknown } | null)?.message || err),
               )
             } catch (e) {}
           }
@@ -101,7 +107,7 @@ export function registerStudyRoutes(registerRoute, ctx) {
       path: API_TRANSLATE,
       methods: ['GET', 'POST'],
       handler: async (req, res) => {
-        let payload
+        let payload!: Record<string, unknown>
         try {
           payload =
             req.method === 'POST'
@@ -132,7 +138,7 @@ export function registerStudyRoutes(registerRoute, ctx) {
       path: API_SAVE,
       methods: ['POST'],
       handler: async (req, res) => {
-        let payload
+        let payload!: Record<string, unknown>
         try {
           payload = await readJson(req)
         } catch (err) {
@@ -203,14 +209,14 @@ export function registerStudyRoutes(registerRoute, ctx) {
       path: API_UPDATE,
       methods: ['POST'],
       handler: async (req, res) => {
-        let payload
+        let payload!: Record<string, unknown>
         try {
           payload = await readJson(req)
         } catch (err) {
           sendJson(res, 400, { ok: false, error: '请求体不是合法 JSON' })
           return
         }
-        const ok = store.update(String(payload.word || ''), payload.patch || {})
+        const ok = store.update(String(payload.word || ''), (payload.patch || {}) as WordPatch)
         sendJson(res, ok ? 200 : 404, { ok })
       },
     }),
@@ -224,7 +230,7 @@ export function registerStudyRoutes(registerRoute, ctx) {
       path: API_REMOVE,
       methods: ['POST'],
       handler: async (req, res) => {
-        let payload
+        let payload!: Record<string, unknown>
         try {
           payload = await readJson(req)
         } catch (err) {
@@ -261,7 +267,7 @@ export function registerStudyRoutes(registerRoute, ctx) {
             ok: true,
             entry: info,
             dict: dictInfo || null,
-            cards: cardStates(store.db, info.id),
+            cards: cardStates(store.db!, info.id),
           })
         } catch (err) {
           fail(res, 500, 'INTERNAL_ERROR', '服务暂时不可用，请稍后重试', err)

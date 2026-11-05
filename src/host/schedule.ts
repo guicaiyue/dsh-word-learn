@@ -115,6 +115,7 @@ export interface DueCard {
   reps: number
   lapses: number
   isNew: boolean
+  wordMeta?: unknown
   overdueDays: number
 }
 

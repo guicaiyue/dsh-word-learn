@@ -3,8 +3,8 @@
 // 外部调用一律走 service.mjs / ai-enrich.mjs，失败降级成 ok:false 而不是 500。
 // 模型选择复用 DSH 的模型目录（models.mjs），插件不维护自己的名单。
 
-import { dict, store } from '../runtime.mjs'
-import { analyzeWord, generateQuiz } from '../ai-enrich.mjs'
+import { dict, store } from '../runtime.js'
+import { analyzeWord, generateQuiz } from '../ai-enrich.js'
 import {
   clearSavedSelection,
   listTextModels,
@@ -12,16 +12,22 @@ import {
   resolveAiModel,
   saveSavedSelection,
   savedSelectionLost,
-} from '../host/models.js'
-import { API_ENRICH_AI, API_MODEL, API_MODELS, API_MODEL_INFO, API_QUIZ } from './paths.mjs'
-import { fail, readJson, safeSend, sendJson, unavailable } from './shared.mjs'
+} from '../models.js'
+import type { WordAnalysis } from '../enrich/analysis.js'
+import type { WordMeta } from '../store/words.js'
+import { API_ENRICH_AI, API_MODEL, API_MODELS, API_MODEL_INFO, API_QUIZ } from './paths.js'
+import { fail, readJson, safeSend, sendJson, unavailable } from './shared.js'
+import type { RegisterRoute, RouteContext } from './shared.js'
 
 /**
  * @param {Function} registerRoute 带栅栏 / methods 白名单 / 500 兜底的注册器
  * @returns {Array<Function>} 卸载函数
  */
-export function registerAiRoutes(registerRoute, ctx) {
-  const disposers = []
+export function registerAiRoutes(
+  registerRoute: RegisterRoute,
+  ctx: RouteContext,
+): Array<() => void> {
+  const disposers: Array<() => void> = []
 
   // AI 分析（手动触发 / 批量补分析）
 
@@ -31,7 +37,7 @@ export function registerAiRoutes(registerRoute, ctx) {
       path: API_ENRICH_AI,
       methods: ['POST'],
       handler: async (req, res) => {
-        let payload
+        let payload!: Record<string, unknown>
         try {
           payload = await readJson(req)
         } catch (err) {
@@ -74,25 +80,30 @@ export function registerAiRoutes(registerRoute, ctx) {
           const selection = await resolveAiModel(ctx, store)
           // 失败要说清楚原因：模型不可用、限流、返回的不是 JSON 都不一样，
           // 糊成一句"可能是模型不可用"只会让人换模型瞎试。
-          let meta
+          let meta!: WordAnalysis
           try {
             meta = await analyzeWord(ctx, word, translation, definition, selection)
           } catch (err) {
-            const message = (err && err.message) || 'AI 分析失败'
+            const cause = err as { message?: unknown; code?: unknown } | null
+            const message = String((cause && cause.message) || 'AI 分析失败')
             try {
               console.warn('[dsh-word-learn] AI 分析失败 ' + word + '：' + message)
             } catch {}
             sendJson(res, 502, {
               ok: false,
               error: message,
-              code: (err && err.code) || 'ANALYSIS_FAILED',
+              code: (cause && cause.code) || 'ANALYSIS_FAILED',
             })
             return
           }
-          let final = meta
+          let final: WordAnalysis | WordMeta = meta
           if (field && existing) {
             // 单字段更新：只替换指定字段，保留其他
-            final = { ...existing, [field]: meta[field], analyzedAt: Date.now() }
+            final = {
+              ...existing,
+              [field]: (meta as unknown as Record<string, unknown>)[field],
+              analyzedAt: Date.now(),
+            }
           }
           store.setMeta(word, final)
           sendJson(res, 200, { ok: true, meta: final, cached: false })
@@ -153,7 +164,7 @@ export function registerAiRoutes(registerRoute, ctx) {
       kind: 'exact',
       path: API_MODELS,
       methods: ['GET'],
-      handler: async (req, res) => {
+      handler: async (_req, res) => {
         try {
           const resolved = await resolveAiModel(ctx, store)
           sendJson(res, 200, {
@@ -176,7 +187,8 @@ export function registerAiRoutes(registerRoute, ctx) {
         } catch (err) {
           try {
             console.warn(
-              '[dsh-word-learn] 模型目录不可用：' + ((err && err.message) || String(err)),
+              '[dsh-word-learn] 模型目录不可用：' +
+                String((err as { message?: unknown } | null)?.message || err),
             )
           } catch (e) {}
           safeSend(res, 500, {
@@ -198,7 +210,7 @@ export function registerAiRoutes(registerRoute, ctx) {
       path: API_MODEL,
       methods: ['POST'],
       handler: async (req, res) => {
-        let payload
+        let payload!: Record<string, unknown>
         try {
           payload = await readJson(req)
         } catch (err) {
@@ -242,7 +254,7 @@ export function registerAiRoutes(registerRoute, ctx) {
       kind: 'exact',
       path: API_MODEL_INFO,
       methods: ['GET'],
-      handler: async (req, res) => {
+      handler: async (_req, res) => {
         try {
           const resolved = await resolveAiModel(ctx, store)
           sendJson(res, 200, {

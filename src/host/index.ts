@@ -13,26 +13,34 @@
 // 不依赖任何外部翻译接口，所以离线也能查词；外部只用于补发音和例句，
 // 拿不到就降级，功能不残。
 
-import { disposeQueues } from './ai-enrich.mjs'
-import { dict, store } from './runtime.mjs'
-import { fail } from './routes/shared.mjs'
-import { registerStudyRoutes } from './routes/study.mjs'
-import { registerReviewRoutes } from './routes/review.mjs'
-import { registerAiRoutes } from './routes/ai.mjs'
-import { registerRepairRoutes } from './routes/repair.mjs'
-import { registerAnnotateRoutes } from './routes/annotate.mjs'
+import { disposeQueues } from './ai-enrich.js'
+import { dict, store } from './runtime.js'
+import { fail } from './routes/shared.js'
+import type {
+  ConnectionFence,
+  HostContext,
+  RegisterRoute,
+  RouteSpec,
+  WebRequest,
+  WebResponse,
+} from './routes/shared.js'
+import { registerStudyRoutes } from './routes/study.js'
+import { registerReviewRoutes } from './routes/review.js'
+import { registerAiRoutes } from './routes/ai.js'
+import { registerRepairRoutes } from './routes/repair.js'
+import { registerAnnotateRoutes } from './routes/annotate.js'
 // P2：R5 次日回访 + 义项地图。逻辑全在 r5.mjs（不碰 FSRS 排期），这里只挂路由。
 // P3：对话内联标注的目标词表（只给在学、有卡片的词）。
 
 // ------------------------------------------------------------------ 信任栅栏
 // 与 dsh-translate-on-select 同款：自身校验 → 宿主栅栏 → fail-closed。
-function makeFence(ctx) {
+function makeFence(ctx: HostContext): (req: WebRequest) => number {
   const trusted = String(process.env.DSH_WORD_LEARN_TRUSTED_HOSTS || '')
     .split(',')
     .map((s) => s.trim().toLowerCase())
     .filter(Boolean)
 
-  function isLoopbackHostname(hostname) {
+  function isLoopbackHostname(hostname: unknown): boolean {
     const h = String(hostname || '')
       .toLowerCase()
       .replace(/^\[/, '')
@@ -45,22 +53,23 @@ function makeFence(ctx) {
     return [m[2], m[3], m[4]].every((x) => Number(x) <= 255)
   }
 
-  function connectionFence() {
+  function connectionFence(): ConnectionFence | null {
     try {
-      const conn = ctx.get('connection') || ctx.connection
+      const get = ctx.get as (name: string) => unknown
+      const conn = (get('connection') || ctx.connection) as ConnectionFence | null | undefined
       return conn && typeof conn.requestRejection === 'function' ? conn : null
     } catch (err) {
       return null
     }
   }
 
-  return function rejection(req) {
+  return function rejection(req: WebRequest): number {
     try {
       const headers = (req && req.headers) || {}
       // 跨站标记一律拒（防恶意网页借浏览器打本机接口）
       if (String(headers['sec-fetch-site'] || '').toLowerCase() === 'cross-site') return 403
 
-      let hostUrl = null
+      let hostUrl: URL | null = null
       try {
         hostUrl = new URL('http://' + String(headers.host || ''))
       } catch (err) {
@@ -70,7 +79,7 @@ function makeFence(ctx) {
 
       const origin = headers.origin
       if (typeof origin === 'string' && origin && origin !== 'null') {
-        let originUrl = null
+        let originUrl: URL | null = null
         try {
           originUrl = new URL(origin)
         } catch (err) {
@@ -91,7 +100,7 @@ function makeFence(ctx) {
         }
         return 0
       }
-      let code
+      let code: unknown
       try {
         code = conn.requestRejection(req)
       } catch (err) {
@@ -105,9 +114,14 @@ function makeFence(ctx) {
   }
 }
 
+/** cordis 插件入口拿到的宿主 root（外部边界，逐项窄化）。 */
+interface HostPluginRoot extends HostContext {
+  inject(names: string[], fn: (ctx: HostContext) => void): void
+}
+
 export default {
   name: 'dsh-word-learn',
-  apply(root) {
+  apply(root: HostPluginRoot): void {
     root.effect(() => () => {
       // 先让后台分析队列停手：否则它们会在 store 关掉之后继续开句柄、写库。
       disposeQueues()
@@ -116,17 +130,17 @@ export default {
     })
 
     // 等 webServer 就绪再挂路由（局部等待，不阻塞插件加载）
-    root.inject(['webServer'], (ctx) => {
+    root.inject(['webServer'], (ctx: HostContext) => {
       const rejection = makeFence(ctx)
-      const disposers = []
+      const disposers: Array<() => void> = []
 
-      function registerRoute(route) {
+      const registerRoute: RegisterRoute = (route: RouteSpec) => {
         const { methods: methodList, ...rest } = route || {}
         const inner = rest.handler
         const methods = Array.isArray(methodList) ? methodList : null
         return ctx.webServer.register({
           ...rest,
-          handler: async (req, res) => {
+          handler: async (req: WebRequest, res: WebResponse) => {
             const code = rejection(req)
             if (code) {
               try {
@@ -136,7 +150,7 @@ export default {
               return
             }
             // 方法白名单：非白名单方法直接 405，别落进 GET 分支顺手把写操作做掉
-            if (methods && !methods.includes(req.method)) {
+            if (methods && !methods.includes(req.method as string)) {
               try {
                 if (typeof res.setHeader === 'function') res.setHeader('Allow', methods.join(', '))
               } catch (err) {}

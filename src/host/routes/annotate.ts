@@ -3,20 +3,24 @@
 // 只返回「在学、有卡片」的词：避免满屏标生词（annotate.mjs 的判据）。
 // rev 变了前端会清掉重标；空库也要 200 + 空数组，前端静默无标注。
 
-import { store } from '../runtime.mjs'
-import { intParam } from '../host/http.js'
-import { normalizeWord } from '../host/text.js'
-import { annotateWordList } from '../host/annotate.js'
-import { senseMap } from '../host/r5.js'
-import { API_ANNOTATE_WORDS, API_SENSE_MAP } from './paths.mjs'
-import { fail, sendJson, unavailable } from './shared.mjs'
+import { store } from '../runtime.js'
+import { intParam } from '../http.js'
+import { normalizeWord } from '../text.js'
+import { annotateWordList } from '../annotate.js'
+import { senseMap } from '../r5.js'
+import { API_ANNOTATE_WORDS, API_SENSE_MAP } from './paths.js'
+import { fail, sendJson, unavailable } from './shared.js'
+import type { RegisterRoute, RouteContext } from './shared.js'
 
 /**
  * @param {Function} registerRoute 带栅栏 / methods 白名单 / 500 兜底的注册器
  * @returns {Array<Function>} 卸载函数
  */
-export function registerAnnotateRoutes(registerRoute) {
-  const disposers = []
+export function registerAnnotateRoutes(
+  registerRoute: RegisterRoute,
+  _ctx: RouteContext,
+): Array<() => void> {
+  const disposers: Array<() => void> = []
 
   // P3 标注层目标词表：只返回在学、有卡片的词（避免满屏标生词）。
   // rev 变了前端会清掉重标；空库也要 200 + 空数组，前端静默无标注。
@@ -41,7 +45,7 @@ export function registerAnnotateRoutes(registerRoute) {
             sendJson(res, 500, words)
             return
           }
-          sendJson(res, 200, { ok: true, ...words })
+          sendJson(res, 200, { ...words, ok: true })
         } catch (err) {
           fail(res, 500, 'INTERNAL_ERROR', '服务暂时不可用，请稍后重试', err)
         }

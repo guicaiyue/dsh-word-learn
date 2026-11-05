@@ -3,7 +3,31 @@
 // 从 ai-enrich.mjs 拆出来的（2026-11-05，原文件超 CODE_BUDGET）。这里只做
 // 「问模型要词根/近义词/干扰项/记忆法，再把答案收拾成 word_meta」。
 // 排队与落库在 queue.mjs，底层调用/重试/错误翻译在 llm.mjs。
-import { AnalysisError, extractJson, runModel } from './llm.mjs'
+import type { ResolvedAiModel } from '../models.js'
+import { AnalysisError, extractJson, runModel } from './llm.js'
+
+/** 模型原始输出里本模块读取的字段（外部未类型化输入）。 */
+interface WordParsed {
+  roots?: unknown
+  synonyms?: unknown
+  distractors?: unknown
+  mnemonic?: unknown
+  confusables?: unknown
+  _provider?: unknown
+  _model?: unknown
+}
+
+/** word_meta 的归一化结构（analysis 的产物；store 侧按 JSON 收口）。 */
+export interface WordAnalysis {
+  roots: Array<{ part: string; type: string; meaning: string } | null>
+  synonyms: string[]
+  distractors: string[]
+  mnemonic: string
+  confusables: string[]
+  analyzedAt: number
+  _provider: string
+  _model: string
+}
 
 /**
  * 让 LLM 分析一个词并返回结构化 JSON。
@@ -17,7 +41,13 @@ import { AnalysisError, extractJson, runModel } from './llm.mjs'
  * @returns {Promise<object>} 归一化后的 word_meta
  * @throws {AnalysisError} 拿不到模型服务、模型报错、输出不是 JSON 等
  */
-export async function analyzeWord(ctx, word, translation, definition, selection) {
+export async function analyzeWord(
+  ctx: unknown,
+  word: unknown,
+  translation: unknown,
+  definition: unknown,
+  selection?: ResolvedAiModel | null,
+): Promise<WordAnalysis> {
   const raw = await runModel(ctx, {
     system: SYSTEM_PROMPT,
     prompt: buildPrompt(word, translation, definition),
@@ -51,8 +81,8 @@ const SYSTEM_PROMPT = [
   '6. 只输出 JSON，不要 markdown 代码块，不要解释文字。',
 ].join('\n')
 
-function buildPrompt(word, translation, definition) {
-  const parts = [`单词：${word}`]
+function buildPrompt(word: unknown, translation: unknown, definition: unknown): string {
+  const parts: string[] = [`单词：${word}`]
   if (translation) parts.push(`中文释义：${translation}`)
   if (definition) parts.push(`英文释义：${definition}`)
   return parts.join('\n')
@@ -67,13 +97,13 @@ function buildPrompt(word, translation, definition) {
  *
  * 导出给测试用：解析是最容易在换模型后静默坏掉的一环。
  */
-export function parseResponse(text) {
+export function parseResponse(text: unknown): WordAnalysis | null {
   const parsed = extractJson(text)
   return parsed ? normalizeWordMeta(parsed) : null
 }
 
 /** 把解析出来的对象归一化成 word_meta；结构不对（不是对象）返回 null。 */
-function normalizeWordMeta(parsed) {
+function normalizeWordMeta(parsed: WordParsed | null | undefined): WordAnalysis | null {
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null
   if (
     !('roots' in parsed) &&
@@ -98,16 +128,19 @@ function normalizeWordMeta(parsed) {
   }
 }
 
-function normalizeRoot(r) {
+function normalizeRoot(r: unknown): { part: string; type: string; meaning: string } | null {
   if (!r || typeof r !== 'object') return null
+  const root = r as { part?: unknown; type?: unknown; meaning?: unknown }
   return {
-    part: String(r.part || '').slice(0, 30),
-    type: ['prefix', 'root', 'suffix'].includes(r.type) ? r.type : 'root',
-    meaning: String(r.meaning || '').slice(0, 50),
+    part: String(root.part || '').slice(0, 30),
+    type: ['prefix', 'root', 'suffix'].includes(root.type as string)
+      ? (root.type as string)
+      : 'root',
+    meaning: String(root.meaning || '').slice(0, 50),
   }
 }
 
-function stringArray(arr, max) {
+function stringArray(arr: unknown, max: number): string[] {
   if (!Array.isArray(arr)) return []
   return arr
     .filter((s) => typeof s === 'string' && s.trim())

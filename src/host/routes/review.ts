@@ -3,18 +3,22 @@
 // 排期与 FSRS 映射全部在 schedule.mjs；这里只做参数解析与出参整形。
 // 评分先落库再记债：记债失败不能让用户看到 500（see test-routes 回归）。
 
-import { store } from '../runtime.mjs'
-import { intParam, strParam } from '../host/http.js'
-import { applyGrade, dueQueue, scheduleStatus, warmSchedule } from '../host/schedule.js'
-import { API_DASHBOARD, API_GRADE, API_QUEUE } from './paths.mjs'
-import { clampInt, fail, readJson, safeSend, sendJson, unavailable } from './shared.mjs'
+import { store } from '../runtime.js'
+import { intParam, strParam } from '../http.js'
+import { applyGrade, dueQueue, scheduleStatus, warmSchedule } from '../schedule.js'
+import { API_DASHBOARD, API_GRADE, API_QUEUE } from './paths.js'
+import { clampInt, fail, readJson, safeSend, sendJson, unavailable } from './shared.js'
+import type { RegisterRoute, RouteContext } from './shared.js'
 
 /**
  * @param {Function} registerRoute 带栅栏 / methods 白名单 / 500 兜底的注册器
  * @returns {Array<Function>} 卸载函数
  */
-export function registerReviewRoutes(registerRoute) {
-  const disposers = []
+export function registerReviewRoutes(
+  registerRoute: RegisterRoute,
+  _ctx: RouteContext,
+): Array<() => void> {
+  const disposers: Array<() => void> = []
 
   // 学习页看板：一次拿到整个页面要的聚合数据
 
@@ -57,7 +61,7 @@ export function registerReviewRoutes(registerRoute) {
             unavailable(res, store)
             return
           }
-          let items = dueQueue(store.db, { limit })
+          let items = dueQueue(store.db!, { limit })
           if (track) items = items.filter((i) => i.track === track)
 
           // 批量取 word_meta，挂到每个 item 上
@@ -89,7 +93,7 @@ export function registerReviewRoutes(registerRoute) {
       path: API_GRADE,
       methods: ['POST'],
       handler: async (req, res) => {
-        let payload
+        let payload!: Record<string, unknown>
         try {
           payload = await readJson(req)
         } catch (err) {
@@ -111,7 +115,7 @@ export function registerReviewRoutes(registerRoute) {
             unavailable(res, store)
             return
           }
-          const result = await applyGrade(store.db, cardId, rating)
+          const result = await applyGrade(store.db!, cardId, rating)
           // 卡不存在是客户端问题（404），不是服务器故障（500）
           const code = result.ok ? 200 : result.code === 'not_found' ? 404 : 500
           // ⚠️ 先发响应，再做收尾副作用：applyGrade 已经写库，
@@ -128,7 +132,7 @@ export function registerReviewRoutes(registerRoute) {
                   '[dsh-word-learn] 评分已写入但记债失败 cardId=' +
                     cardId +
                     '：' +
-                    ((err && err.message) || String(err)),
+                    String((err as { message?: unknown } | null)?.message || err),
                 )
               } catch (e) {}
             }

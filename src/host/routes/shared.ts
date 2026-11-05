@@ -10,13 +10,55 @@
 //
 // 公共出口保持不变：`import { clampInt } from './shared.mjs'` 照旧可用。
 // 实现与语义说明见 `lib/http.mjs`（与 intParam 同归口）。
-export { clampInt } from '../host/http.js'
+import type { IncomingMessage, ServerResponse } from 'node:http'
+import type { ServiceHost } from '../service.js'
+
+export { clampInt } from '../http.js'
+
+/** 路由处理器收到的请求/响应（DSH webServer 透传的 node http 对象）。 */
+export interface WebRequest extends IncomingMessage {
+  url: string
+}
+export type WebResponse = ServerResponse
+
+/** 宿主 ctx 的 connection 服务里本插件用到的部分。 */
+export interface ConnectionFence {
+  requestRejection(req: WebRequest): unknown
+}
+
+/** 宿主 ctx 里本插件用到的部分（外部边界，逐项窄化）。 */
+export interface HostContext extends ServiceHost {
+  connection?: ConnectionFence | null
+  effect(fn: () => () => void): void
+  webServer: {
+    register(route: Record<string, unknown>): () => void
+  }
+  inject(names: string[], fn: (ctx: HostContext) => void): void
+}
+
+/** 路由模块拿到的 ctx（只需要取服务）。 */
+export type RouteContext = ServiceHost
+
+/** registerRoute 的入参：路径 + 方法白名单 + 处理器。 */
+export interface RouteSpec {
+  kind?: string
+  path: string
+  methods?: string[]
+  handler: (req: WebRequest, res: WebResponse) => unknown
+}
+
+/** 带栅栏 / 方法白名单 / 500 兜底的注册器（index.ts 提供）。 */
+export type RegisterRoute = (route: RouteSpec) => () => void
 
 /**
  * 唯一的响应出口：已发过就什么都不做，绝不二次写头。
  * 返回 true 表示这次真的发出去了。
  */
-export function safeSend(res, code, payload) {
+export function safeSend(
+  res: WebResponse | null | undefined,
+  code: number,
+  payload: unknown,
+): boolean {
   if (!res || res.headersSent || res.writableEnded) return false
   try {
     res.writeHead(code, {
@@ -34,7 +76,7 @@ export function safeSend(res, code, payload) {
   }
 }
 
-export function sendJson(res, code, payload) {
+export function sendJson(res: WebResponse, code: number, payload: unknown): boolean {
   return safeSend(res, code, payload)
 }
 
@@ -42,33 +84,47 @@ export function sendJson(res, code, payload) {
  * 对外错误出口：只回稳定 code + 一句人话。
  * 原始 message 常带用户库的绝对路径，只能进日志，不能给浏览器。
  */
-export function fail(res, code, errorCode, message, err) {
+export function fail(
+  res: WebResponse,
+  code: number,
+  errorCode: string,
+  message: string,
+  err?: unknown,
+): boolean {
   if (err !== undefined) {
     try {
-      console.warn('[dsh-word-learn] ' + errorCode + '：' + ((err && err.message) || String(err)))
+      const cause = err as { message?: unknown } | null
+      console.warn(
+        '[dsh-word-learn] ' + errorCode + '：' + ((cause && cause.message) || String(err)),
+      )
     } catch (e) {}
   }
   return safeSend(res, code, { ok: false, code: errorCode, error: message })
 }
 
 /** 用户库打不开时的统一响应（store.error 含绝对路径，不回给浏览器）。 */
-export function unavailable(res, storeLike) {
+export function unavailable(
+  res: WebResponse,
+  storeLike: { error?: unknown } | null | undefined,
+): boolean {
   try {
-    console.warn('[dsh-word-learn] 用户库不可用：' + ((storeLike && storeLike.error) || '未知原因'))
+    console.warn(
+      '[dsh-word-learn] 用户库不可用：' + String((storeLike && storeLike.error) || '未知原因'),
+    )
   } catch (e) {}
   return safeSend(res, 500, { ok: false, code: 'DB_UNAVAILABLE', error: '用户库暂时不可用' })
 }
 
 /** GET query 的布尔值：'false'/'0'/0/false 都算 false（'false' !== false 踩过）。 */
-export function isFalse(v) {
+export function isFalse(v: unknown): boolean {
   return v === false || v === 'false' || v === 0 || v === '0'
 }
 
-export function readBody(req, limit = 256 * 1024) {
+export function readBody(req: WebRequest, limit = 256 * 1024): Promise<string> {
   return new Promise((resolve, reject) => {
-    const chunks = []
+    const chunks: Buffer[] = []
     let size = 0
-    req.on('data', (chunk) => {
+    req.on('data', (chunk: Buffer) => {
       size += chunk.length
       if (size > limit) {
         reject(new Error('请求体过大'))
@@ -82,7 +138,7 @@ export function readBody(req, limit = 256 * 1024) {
   })
 }
 
-export async function readJson(req) {
+export async function readJson(req: WebRequest): Promise<Record<string, unknown>> {
   const text = await readBody(req)
   const value = text.trim() ? JSON.parse(text) : null
   // 空 body / JSON null / 数组 / 标量都不是合法请求体：在这里就抛，
@@ -90,5 +146,5 @@ export async function readJson(req) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw new Error('请求体必须是 JSON 对象')
   }
-  return value
+  return value as Record<string, unknown>
 }
