@@ -1008,7 +1008,7 @@ function WordMetaModal({ word: entry, onClose, api }) {
       h(
         'div',
         { className: 'dwl-modal-sub' },
-        (entry.translation || '').split('\\n')[0] || '无释义',
+        (entry.translation || '').split('\n')[0] || '无释义',
         timeStr
           ? h(
               'span',
@@ -2419,7 +2419,7 @@ function VocabView() {
                   className: 'dwl-vrow',
                   role: 'button',
                   tabIndex: 0,
-                  'aria-label': `${x.word}${x.translation ? '，' + (x.translation || '').split('\\n')[0] : ''}`,
+                  'aria-label': `${x.word}${x.translation ? '，' + (x.translation || '').split('\n')[0] : ''}`,
                   title: `${x.word} · ${tierLabelOf(x.freqTier)}${x.translation ? ' · ' + x.translation : ''}`,
                   onClick: (e) => {
                     lastFocusRef.current = e.currentTarget
@@ -2450,7 +2450,7 @@ function VocabView() {
                   className: 'dwl-vrow',
                   role: 'button',
                   tabIndex: 0,
-                  'aria-label': `${x.word}${x.translation ? '，' + (x.translation || '').split('\\n')[0] : ''}`,
+                  'aria-label': `${x.word}${x.translation ? '，' + (x.translation || '').split('\n')[0] : ''}`,
                   title: `${x.word} · ${tierLabelOf(x.freqTier)}${x.translation ? ' · ' + x.translation : ''}`,
                   onClick: (e) => {
                     lastFocusRef.current = e.currentTarget
@@ -3464,7 +3464,7 @@ function apply(ctx) {
 
 // 单测入口：整文件加载本模块后从这里取组件与纯函数。
 // 为什么要有：测试过去按函数名切源码再 new Function，注释/解构一变就碎。
-// DSH 只读 inject/apply，多一个键不影响加载（见 tests/helpers/dashboard.mjs）。
+// DSH 只读 inject/apply，多一个键不影响加载（TS/JS 测试都从这里取组件）。
 const __test__ = {
   // 纯逻辑模块对象：组件测试要 spy 单个函数（如 saveAccent）时改它的属性，
   // 与运行时读的是同一个对象。

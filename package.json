@@ -3,9 +3,9 @@
   "version": "0.1.0",
   "description": "DSH 英语单词学习：划词即查、按词频分级、间隔重复复习，面向以英语为工作语言的开发者",
   "type": "module",
-  "main": "lib/index.js",
+  "main": "lib/host/index.js",
   "exports": {
-    ".": "./lib/index.js",
+    ".": "./lib/host/index.js",
     "./client": "./dist/client.js",
     "./locale/*.json": "./locale/*.json",
     "./icon": "./icon.svg"
@@ -47,8 +47,7 @@
     "test:unit": "node --test \"tests/**/*.test.mjs\"",
     "test:unit:coverage": "node --experimental-test-coverage --test-coverage-include=lib/host/http.js --test-coverage-include=lib/host/text.js --test-coverage-include=lib/host/models.js --test-coverage-lines=95 --test-coverage-branches=85 --test-coverage-functions=95 --test \"tests/**/*.test.mjs\"",
     "test:component": "vitest run",
-    "test:legacy": "node scripts/test-all.mjs",
-    "test": "pnpm test:unit && pnpm test:unit:coverage && pnpm test:component && pnpm test:legacy",
+    "test": "pnpm test:unit && pnpm test:unit:coverage && pnpm test:component",
     "artifact:check": "node scripts/check-artifact.mjs",
     "check": "pnpm typecheck && pnpm lint && pnpm format:check && pnpm deps:check",
     "verify": "pnpm build && pnpm artifact:check && pnpm check:tarball && pnpm check && pnpm test",

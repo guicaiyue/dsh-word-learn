@@ -3,7 +3,7 @@ import { defineConfig } from 'vitest/config'
 /**
  * 组件测试基座（阶段 1）。
  *
- * 只收 tests/component/ 目录下的 .test.ts / .test.tsx：
+ * 收 tests/component/ 与 tests/integration 两处：
  *   - 阶段 1 的目标是**证明 jsdom + RTL 能真实渲染插件组件**，不是替换全部
  *     node:test 单测；tests/ 下的 .test.mjs 那套仍由 `pnpm test:unit` 跑，
  *     两边的 glob 互不重叠（.mjs vs .tsx），一个文件不会被跑两遍。
@@ -16,7 +16,12 @@ import { defineConfig } from 'vitest/config'
 export default defineConfig({
   test: {
     environment: 'jsdom',
-    include: ['tests/component/**/*.test.{ts,tsx}'],
+    include: [
+      'tests/component/**/*.test.{ts,tsx}',
+      // 集成测试（真实 ctx 桩 + 临时 DSH_HOME + 真实 node:sqlite）。
+      // 文件顶部写 `// @vitest-environment node` 覆盖本文件的 jsdom 环境。
+      'tests/integration/**/*.test.ts',
+    ],
     globals: false,
     setupFiles: ['tests/support/setup.ts'],
     // 每个 case 结束后自动还原被替换/被 spy 的实现，避免桩跨 case 泄漏。
