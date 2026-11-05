@@ -8,9 +8,8 @@ import globals from 'globals'
  * 类型与未用检查交给 tsc。这样报错信息是「你做错了什么」，而不是「你怎么排的版」。
  *
  * 硬边界靠配置守，不靠记忆：
- *   1. assets/ 是注入页面的普通脚本（IIFE），不许 ESM、不许 import、不许 Node API；
- *   2. src/client 是构建源码（ESM → tsdown 单 bundle），同样不许 Node 全局；
- *   3. lib/ 是宿主侧 ESM，不许 import assets/ 或 src/client（反过来也不许）；
+ *   1. src/client 是构建源码（ESM → tsdown 单 bundle），不许 Node 全局；
+ *   2. lib/ 是宿主侧 ESM，不许 import src/client（反过来也不许）；
  *      这一条与「不许有 import 环」都由 dependency-cruiser 在 `pnpm deps:check` 守
  *      （本文件只保留 ESLint 能便宜做到的单向 import 限制）。
  *
@@ -49,15 +48,6 @@ const nodeZone = {
   },
 }
 
-const browserZone = {
-  languageOptions: {
-    ecmaVersion: 'latest',
-    // assets/ 是 <script> 直接注入的普通脚本，不是 ES 模块
-    sourceType: 'script',
-    globals: { ...globals.browser },
-  },
-}
-
 export default [
   {
     ignores: [
@@ -67,7 +57,6 @@ export default [
       'lab/**',
       'locale/**',
       'dist/**',
-      'scripts/test-annotate-fixture/**',
       '**/*.min.js',
       // TS/TSX 由 tsc（tsconfig.json 的 noUnusedLocals 等）负责类型与未用检查；
       // ESLint 没有配 @typescript-eslint parser，强行 lint 只会拿到「0 条规则」的假绿。
@@ -87,10 +76,6 @@ export default [
         {
           patterns: [
             {
-              group: ['**/assets/**', '../assets/**', './assets/**'],
-              message: '宿主侧不许 import assets/：那是注入页面的普通脚本（IIFE），不是模块。',
-            },
-            {
               group: ['**/src/client/**', '../src/client/**', './src/client/**'],
               message: '宿主侧不许 import src/client/：那是浏览器产物源码。',
             },
@@ -100,24 +85,8 @@ export default [
     },
   },
 
-  // ---- 浏览器侧：注入页面的普通脚本 -------------------------------------------
-  {
-    files: ['assets/**/*.js'],
-    ...browserZone,
-    rules: {
-      ...baseRules,
-      // script 模式下 import/export 本身就是语法错误；require 则是未定义全局
-      'no-restricted-globals': [
-        'error',
-        { name: 'require', message: 'assets/ 是浏览器脚本，没有 require。' },
-        { name: 'module', message: 'assets/ 是浏览器脚本，没有 CommonJS module。' },
-        { name: 'process', message: 'assets/ 是浏览器脚本，没有 process。' },
-      ],
-    },
-  },
-
   // ---- 浏览器侧构建源码：ESM + 浏览器全局 -------------------------------------
-  // 与 assets/ 的区别：这里允许 import/export（tsdown 会打成单 bundle），
+  // 这里是 bundle 的构建源码：允许 import/export（tsdown 打成单 bundle），
   // 但仍禁止 Node 全局 —— 产物跑在浏览器，`process`/`__dirname` 一律运行期炸。
   {
     files: ['src/client/**/*.js'],

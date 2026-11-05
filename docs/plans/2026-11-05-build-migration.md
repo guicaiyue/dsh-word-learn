@@ -114,3 +114,14 @@
 - bundle 体积预算（≤ 300KB raw / 100KB gzip）需在阶段 2 后复测；超了先做代码分割/懒加载评估，不调预算。
 - 宿主 TS 化会引入 `dist/host` 构建延迟（<1s），但改变了「改完即可重挂」的路径，需文档写清 `pnpm dev` 常驻。
 - CI 需要用户提供 npm token 才能自动发布；无 token 时 Release tarball 流程仍可用。
+
+## 进度记录
+
+- **2026-11-05 · 阶段 2 完成（待重启验收）**：`assets/` 全数并入 `src/client/**`
+  （`features/core.js`、`features/voice.js`、`features/wordcard/{index,card,style}.js`、
+  `features/annotate/{index,config,tokenize}.js`、`dashboard/{logic,styles}.js`），
+  `apply()` 用 `ctx.effect(installWordcard/installAnnotate)` 装卸；宿主侧删除 `INJECT_TEXT`/
+  `SCRIPT_PATHS`/`index-inject`/`tapIndex`/`lib/routes/assets.mjs` 与 `runtime.mjs` 的 mtime loader；
+  迁移 3 个 vm 旧脚本到 `tests/features/*.test.mjs`，删除 `tests/unit/inject-order.test.mjs`。
+  验证：`pnpm verify` 全绿（artifact 16/16、tsc 0、lint 0、format 0、depcruise 50 modules/99 deps 0 违规、
+  node --test 197/197、vitest 7/7、legacy 8/8）。真机验收等 dsh 重启后做（注入代码已删，必须重启才生效）。

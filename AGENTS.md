@@ -30,39 +30,39 @@ pnpm format        # 再统一排版
 
 ## 2. 改 X 去哪里
 
-| 要改的东西                             | 文件                               | 备注                                                                                                                                                 |
-| -------------------------------------- | ---------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 划词卡片装配、请求、状态机             | `assets/wordcard.js`               | 普通 IIFE；判定取 `window.__dwlCore`、视图取 `window.__dwlWordcardCard`、CSS 取 `window.__dwlWordcardStyle`                                          |
-| 划词卡片视图（DOM/渲染/定位）          | `assets/wordcard-card.js`          | `window.__dwlWordcardCard`；不注册事件、不持有状态，DOM 句柄由 wordcard.js 传入                                                                      |
-| 划词卡片样式（CSS 字符串）             | `assets/wordcard-style.js`         | `window.__dwlWordcardStyle`；只导出字符串，不碰 DOM                                                                                                  |
-| 划词纯判定 + 排除范围单一来源          | `assets/core.js`                   | `window.__dwlCore`；`BLOCKED_ELEMENTS`/`blockedSelector` 只在这里维护，wordcard/annotate 只消费；改判定必跑 `test-scope`                             |
-| 学习页四个视图、侧栏入口、客户端文案   | `src/client/plugin.js`             | React 客户端源码，经 tsdown 打成 `dist/client.js`；改完 `pnpm build`（watch 用 `pnpm dev`）；单测入口 `__test__`；**禁止模块期快照 `window.__dwl*`** |
-| 学习页纯逻辑 / 常量（无 React）        | `assets/dashboard-logic.js`        | `window.__dwlDashboardLogic`；不监听事件、不写样式，dashboard.js 只消费                                                                              |
-| 学习页样式（CSS 模板串）               | `assets/dashboard-style.js`        | `window.__dwlDashboardCSS`；唯一新增预算条目（509 代码行）                                                                                           |
-| 对话内联标注、悬停小卡                 | `assets/annotate.js`               | 普通 IIFE；只在 `[data-chat-flow]` 内动                                                                                                              |
-| 新增/改一条路由的 handler              | `lib/routes/{组}.mjs`              | 组：assets/study/review/ai/repair/annotate；只解析参数，业务往下走                                                                                   |
-| 路由路径字符串                         | `lib/routes/paths.mjs`             | 常量唯一出口，别在 handler 里写死路径                                                                                                                |
-| 响应出口（safeSend / fail / readJson） | `lib/routes/shared.mjs`            | 响应只从 safeSend 出；错误只回稳定 code + 人话                                                                                                       |
-| 注入链、信任栅栏、registerRoute 包装   | `lib/index.js`                     | 入口只做挂载与卸载；预算 210 代码行（现 207）；注入顺序见 CONVENTIONS §7.1                                                                           |
-| 词典/用户库单例、前端脚本 mtime 缓存   | `lib/runtime.mjs`                  | 进程级状态；路由模块只消费                                                                                                                           |
-| 查词结果组装（lookupWord）             | `lib/lookup.mjs`                   | /lookup、/word、/translate 共用                                                                                                                      |
-| 路由 query / body 参数读值/钳制        | `lib/http.mjs`                     | query 数字过 `intParam`、body 数字过 `clampInt`；别裸写 `Number`                                                                                     |
-| 排期、FSRS 映射、队列、毕业/leech      | `lib/schedule.mjs`                 | 别在路由里直接算 FSRS                                                                                                                                |
-| 用户库生命周期（打开/重试/关闭/委托）  | `lib/store.mjs`                    | 门面：open/退避重试/close + 25 个薄委托，别往里堆逻辑                                                                                                |
-| SCHEMA 与迁移                          | `lib/store/schema.mjs`             | 表结构/索引/`migrate()`；schema 变更见 CONVENTIONS §6.3                                                                                              |
-| 生词本、卡片、义项材料读写             | `lib/store/words.mjs`              | SQL 归口之一；函数第一参数是 Store 实例                                                                                                              |
-| 统计、看板、补记债                     | `lib/store/review.mjs`             | 函数第一参数是 Store 实例                                                                                                                            |
-| 设置读写                               | `lib/store/settings.mjs`           | 函数第一参数是 Store 实例                                                                                                                            |
-| 发音（前端语音合成、音色选择）         | `assets/voice.js`                  | 零网络：只用浏览器自带音色，缓存的是偏好不是音频                                                                                                     |
-| 整句翻译、降级链                       | `lib/translate.mjs`                | 交互路径：失败回 200 + `ok:false`                                                                                                                    |
-| AI 分析、义项材料、出题、队列          | `lib/enrich/*.mjs`                 | `ai-enrich.mjs` 只做再导出；队列 dispose 后靠下次 enqueue 重新武装（`rearmIfDisposed`）                                                              |
-| AI 分析用哪个模型                      | `lib/models.mjs`                   | 复用 DSH 模型目录，不自己维护名单                                                                                                                    |
-| 词典查询、变形回退、词频分级           | `lib/dict.mjs`                     | 只读 `data/ecdict.db`                                                                                                                                |
-| 回访（R5）、义项地图                   | `lib/r5.mjs`                       | 只记日志，不动 FSRS                                                                                                                                  |
-| 标注目标词表                           | `lib/annotate.mjs`                 | 只返回在学、有卡片的词                                                                                                                               |
-| 文本判断（是不是单词、拆词、代码过滤） | `lib/text.js`                      | 纯函数，改这里先看 `test-scope`/`test-routes`                                                                                                        |
-| 取 cordis 服务                         | `lib/service.mjs`                  | 用 `ctx.get(name)`；`ctx.llm` 会抛                                                                                                                   |
-| 包级文案                               | `locale/zh.json`、`locale/en.json` | 两份键必须一致                                                                                                                                       |
+| 要改的东西                             | 文件                                    | 备注                                                                                                                                                 |
+| -------------------------------------- | --------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 划词卡片装配、请求、状态机             | `src/client/features/wordcard/index.js` | `installWordcard()` 装监听/建卡、返回 dispose；判定用 `../core.js`、视图用 `./card.js`、CSS 用 `./style.js`（全部 import，无 window 全局）           |
+| 划词卡片视图（DOM/渲染/定位）          | `src/client/features/wordcard/card.js`  | 不注册事件、不持有状态；DOM 句柄由 index.js 传入                                                                                                     |
+| 划词卡片样式（CSS 字符串）             | `src/client/features/wordcard/style.js` | 只导出 `CSS` 字符串，不碰 DOM                                                                                                                        |
+| 划词纯判定 + 排除范围单一来源          | `src/client/features/core.js`           | `BLOCKED_ELEMENTS`/`blockedSelector` 只在这里维护，wordcard/annotate 都 import 它；改判定必跑 `tests/features/scope.test.mjs`                        |
+| 学习页四个视图、侧栏入口、客户端文案   | `src/client/plugin.js`                  | React 客户端源码，经 tsdown 打成 `dist/client.js`；改完 `pnpm build`（watch 用 `pnpm dev`）；单测入口 `__test__`；**禁止模块期快照 `window.__dwl*`** |
+| 学习页纯逻辑 / 常量（无 React）        | `src/client/dashboard/logic.js`         | 不监听事件、不写样式；`plugin.js` 通过 `assetOf(name)` 读它                                                                                          |
+| 学习页样式（CSS 模板串）               | `src/client/dashboard/styles.js`        | `export const CSS`；apply 时写进 `<style data-plugin="dsh-word-learn">`                                                                              |
+| 对话内联标注、悬停小卡                 | `src/client/features/annotate/`         | `installAnnotate()` 装 observer/监听，返回 dispose；只在 `[data-chat-flow]` 内动                                                                     |
+| 新增/改一条路由的 handler              | `lib/routes/{组}.mjs`                   | 组：study/review/ai/repair/annotate；只解析参数，业务往下走                                                                                          |
+| 路由路径字符串                         | `lib/routes/paths.mjs`                  | 常量唯一出口，别在 handler 里写死路径                                                                                                                |
+| 响应出口（safeSend / fail / readJson） | `lib/routes/shared.mjs`                 | 响应只从 safeSend 出；错误只回稳定 code + 人话                                                                                                       |
+| 信任栅栏、registerRoute 包装           | `lib/index.js`                          | 入口只做挂载与卸载；**阶段 2 起不再往页面注入任何脚本**                                                                                              |
+| 词典/用户库单例                        | `lib/runtime.mjs`                       | 进程级状态；路由模块只消费                                                                                                                           |
+| 查词结果组装（lookupWord）             | `lib/lookup.mjs`                        | /lookup、/word、/translate 共用                                                                                                                      |
+| 路由 query / body 参数读值/钳制        | `lib/http.mjs`                          | query 数字过 `intParam`、body 数字过 `clampInt`；别裸写 `Number`                                                                                     |
+| 排期、FSRS 映射、队列、毕业/leech      | `lib/schedule.mjs`                      | 别在路由里直接算 FSRS                                                                                                                                |
+| 用户库生命周期（打开/重试/关闭/委托）  | `lib/store.mjs`                         | 门面：open/退避重试/close + 25 个薄委托，别往里堆逻辑                                                                                                |
+| SCHEMA 与迁移                          | `lib/store/schema.mjs`                  | 表结构/索引/`migrate()`；schema 变更见 CONVENTIONS §6.3                                                                                              |
+| 生词本、卡片、义项材料读写             | `lib/store/words.mjs`                   | SQL 归口之一；函数第一参数是 Store 实例                                                                                                              |
+| 统计、看板、补记债                     | `lib/store/review.mjs`                  | 函数第一参数是 Store 实例                                                                                                                            |
+| 设置读写                               | `lib/store/settings.mjs`                | 函数第一参数是 Store 实例                                                                                                                            |
+| 发音（前端语音合成、音色选择）         | `src/client/features/voice.js`          | 零网络：只用浏览器自带音色，缓存的是偏好不是音频                                                                                                     |
+| 整句翻译、降级链                       | `lib/translate.mjs`                     | 交互路径：失败回 200 + `ok:false`                                                                                                                    |
+| AI 分析、义项材料、出题、队列          | `lib/enrich/*.mjs`                      | `ai-enrich.mjs` 只做再导出；队列 dispose 后靠下次 enqueue 重新武装（`rearmIfDisposed`）                                                              |
+| AI 分析用哪个模型                      | `lib/models.mjs`                        | 复用 DSH 模型目录，不自己维护名单                                                                                                                    |
+| 词典查询、变形回退、词频分级           | `lib/dict.mjs`                          | 只读 `data/ecdict.db`                                                                                                                                |
+| 回访（R5）、义项地图                   | `lib/r5.mjs`                            | 只记日志，不动 FSRS                                                                                                                                  |
+| 标注目标词表                           | `lib/annotate.mjs`                      | 只返回在学、有卡片的词                                                                                                                               |
+| 文本判断（是不是单词、拆词、代码过滤） | `lib/text.js`                           | 纯函数，改这里先看 `test-scope`/`test-routes`                                                                                                        |
+| 取 cordis 服务                         | `lib/service.mjs`                       | 用 `ctx.get(name)`；`ctx.llm` 会抛                                                                                                                   |
+| 包级文案                               | `locale/zh.json`、`locale/en.json`      | 两份键必须一致                                                                                                                                       |
 
 ## 3. 硬约束（违反即算失败，不讨论）
 
@@ -72,17 +72,16 @@ pnpm format        # 再统一排版
 - **不许改 `DESIGN.md` 的历史结论**：那是决策与实测记录。新结论只能追加，并注明日期。
 - **不许为过 lint 加 `eslint-disable`**。确需例外时，必须写原因 + 到期条件，并说明为什么规则不适用。
 - **不许制造 import 环**：`pnpm check:cycles`（挂在 `pnpm check`/`verify` 里）会打印完整环路径。
-- **不许在模块工厂 / `apply()` 期快照 `window.__dwl*` 全局**：DSH 的 client 入口可能先于动态注入脚本执行，
-  快照到 `undefined` 会让页面崩（2026-11-05 普通刷新事故）。用 `assetOf()` 在使用时读、
-  `whenAssetsReady` 等 `dwl:assets-ready` 后再渲染。
 - **不许改 `cordis.patch.yml` 的语义**（id/name/insert 结构）。它只是挂载声明；
   改它触发 HMR 是运维手段，不要把语义改掉。
 - **构建是唯一入口**：客户端产物只能由 `pnpm build`（tsdown）从 `src/client/**` 生成，`dist/` 不入库；
   产物壳/`id`/externals 由 `tsdown.config.ts` 定义，**不许手改 `dist/client.js`**（`pnpm artifact:check` 会校验）。
 - **客户端产物只许 `require` 宿主模块表**（11 个 baseline seed，见 `tsdown.config.ts`）：多 require 一个包就是运行期
   `missed the module table`；运行时依赖（如 `ts-fsrs`）留在宿主侧，不进客户端。
-- **不许在 `assets/` 里 import/require Node**（唯一例外是 `dashboard.js` 的 `require('react')`）。
-- **不许在 `assets/` 里判 `data-theme="dark"` 或写死颜色**：颜色只走 `--dsw-alias-*` 令牌。
+- **不许在 `src/client/**` 里 import Node 内建或 `process`/`__dirname`**：产物跑在浏览器。
+- **不许写死颜色**：颜色只走 `--dsw-alias-*` 令牌（深层判断用 `.dwl-page`/`isDark()` 那套）。
+- **前端模块不许在顶层产生副作用**（监听/observer/appendChild）：一律收进 `installXxx()`，返回 dispose，
+  由 `apply()` 的 `ctx.effect` 装卸 —— HMR 重挂才不会叠监听。
 - **不许把真实网络写进测试**：LLM/翻译/TTS/例句一律 stub，或只用已落盘缓存。
 - **不许绕过 `registerRoute`** 直接 `ctx.webServer.register`；不许绕过 `makeFence`。
 - **不许手改 `pnpm-lock.yaml`**，不许用 npm/yarn 装包。
@@ -93,10 +92,9 @@ pnpm format        # 再统一排版
 2. **改前先想测试**：改行为先加一条会红/会绿的断言；修 bug 先补回归（CONVENTIONS §9.3）。
 3. **只改必要的**：不顺手重构无关代码，不批量改注释格式，不重排 import。
 4. **改完自检**：`pnpm lint:fix && pnpm format && pnpm verify`。
-5. **说清生效方式**：`assets/` 的注入脚本（`core.js`/`voice.js`/`wordcard-style.js`/`wordcard-card.js`/
-   `wordcard.js`/`dashboard-logic.js`/`dashboard-style.js`/`annotate.js`）硬刷新；
-   `src/client/**` 要 `pnpm build`（或 `pnpm dev` 常驻）重建 `dist/client.js`，平台 client-hmr 会自动重载模块；
-   `lib/**/*.mjs` 重挂插件即可。改完前端要告诉人"怎么看到效果"。
+5. **说清生效方式**：前端全部在 `src/client/**` —— 改完 `pnpm build`（或 `pnpm dev` 常驻）重建
+   `dist/client.js`，平台 client-hmr 会自动重载模块（不用刷新、不用重启）；`lib/**/*.mjs` 重挂插件即可。
+   改完前端要告诉人"怎么看到效果"。
 
 ## 5. 交付说明必须包含
 

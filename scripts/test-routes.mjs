@@ -215,15 +215,20 @@ console.log('  跨站 -> HTTP', r.code)
 r = await call('/dsh-word-learn/list', { headers: { origin: 'http://evil.example' } })
 console.log('  异源 -> HTTP', r.code)
 
-console.log('\n=== 前端脚本可取出 ===')
-r = await call('/dsh-word-learn/client.js')
+console.log('\n=== 前端已并入 bundle（不再有静态资源路由）===')
 console.log(
-  '  HTTP',
-  r.code,
-  ' 长度',
-  String(r.json).length,
-  ' 含 __dshWordLearn:',
-  String(r.json).includes('__dshWordLearn'),
+  '  6 条脚本路由已注销:',
+  [
+    'core.js',
+    'voice.js',
+    'wordcard.js',
+    'wordcard-style.js',
+    'wordcard-card.js',
+    'annotate.js',
+    'client.js',
+  ].every((f) => routes['/dsh-word-learn/' + f] === undefined)
+    ? '✓'
+    : '✗',
 )
 
 // ─────────────────────────────────────────────────────────────
@@ -413,17 +418,6 @@ console.log(
   ' 形状:',
   r.json.words && r.json.words[0] ? Object.keys(r.json.words[0]).join('/') : '(空)',
 )
-r = await call('/dsh-word-learn/annotate.js')
-const annotateSrc = typeof r.json === 'string' ? r.json : ''
-console.log(
-  '  annotate.js HTTP',
-  r.code,
-  ' 字节:',
-  annotateSrc.length,
-  ' 有 CONFIG:',
-  annotateSrc.includes('ROOT_SELECTOR') ? '✓' : '✗',
-)
-
 console.log('\n=== 边界：评分参数非法 ===')
 r = await call('/dsh-word-learn/grade', {
   method: 'POST',
@@ -486,16 +480,7 @@ console.log(
   '  旧 /tts-prepare 路由已注销:',
   routes['/dsh-word-learn/tts-prepare'] === undefined ? '✓' : '✗',
 )
-r = await call('/dsh-word-learn/voice.js', { url: '/dsh-word-learn/voice.js' })
-console.log(
-  '  /voice.js -> HTTP',
-  r.code,
-  ' 字节',
-  (r.raw || Buffer.alloc(0)).length,
-  r.headers['Cache-Control'] === 'no-store' ? '（no-store ✓）' : '',
-)
-
-console.log('\n=== 悬浮预览：save=false 只看不记 ===')
+console.log('\n=== 边界：评分参数非法 ===')
 const probe = 'wander'
 r = await call('/dsh-word-learn/word', { url: '/dsh-word-learn/word?word=' + probe })
 console.log('  预览前查详情 -> HTTP', r.code, '(404 = 还不在生词本)')
@@ -717,28 +702,7 @@ if (gItem) {
   console.log('  （队列为空，跳过评分收尾断言）')
 }
 
-// ─────────────────────────────────────────────────────────────
-// 划词卡拆分：新增两个注入脚本的 HTTP 契约（顺序/async 契约在 test-scope 静态守）
-// ─────────────────────────────────────────────────────────────
-console.log('\n=== 划词卡拆分：新增注入脚本 ===')
-for (const [pathname, marker] of [
-  ['/dsh-word-learn/wordcard-style.js', 'window.__dwlWordcardStyle'],
-  ['/dsh-word-learn/wordcard-card.js', 'window.__dwlWordcardCard'],
-]) {
-  r = await call(pathname)
-  const body = typeof r.json === 'string' ? r.json : String(r.json)
-  checkEq(pathname + ' HTTP', r.code, 200)
-  checkEq(pathname + ' no-store', r.headers['Cache-Control'], 'no-store')
-  check(
-    pathname + ' content-type + window 全局',
-    /application\/javascript/.test(String(r.headers['Content-Type'] || '')) &&
-      body.includes(marker),
-  )
-}
-r = await call('/dsh-word-learn/client.js')
-check('wordcard.js 从 __dwlWordcardCard 取视图', String(r.json).includes('__dwlWordcardCard'))
-
-console.log('\n=== task-6 断言汇总 ===')
+console.log('\n=== 断言汇总 ===')
 const totalChecks = passed + failures.length
 if (failures.length) {
   console.log(`✗ ${failures.length} / ${totalChecks} 项失败`)

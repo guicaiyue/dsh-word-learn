@@ -79,12 +79,14 @@ await p2.click()
 assert.match(textOf(p2.tree), /已在生词本|加入生词本/)
 console.log('  ✓ 另一个词的卡片同样能渲染')
 
-// 源码级约束：发音走浏览器自带语音，不再有服务端音频链路
-assert.ok(!/tts/i.test(source), 'dashboard.js 不应再出现 tts 字样（服务端发音链路已删）')
-assert.ok(!/new Audio\s*\(/.test(source), 'dashboard.js 不应 new Audio（改为 __dwlVoice.speak）')
-assert.ok(source.includes('__dwlVoice'), 'dashboard.js 应通过 window.__dwlVoice 朗读')
+// 源码级约束：发音走浏览器自带语音（语音模块已并入 bundle），不再有服务端音频链路。
+// 注意不能只查 'tts' 字样：voice.js 里还保留着老 localStorage 键
+// `dwl-tts-accent` 的一次性迁移，那是数据迁移，不是服务端链路。
+assert.ok(!/\/tts|tts-prepare/.test(source), '不应再引用服务端 /tts 音频路由')
+assert.ok(!/new Audio\s*\(/.test(source), '不应 new Audio（发音走 speechSynthesis）')
+assert.ok(source.includes('speechSynthesis'), '发音应走浏览器自带 speechSynthesis')
 assert.ok(source.includes('preload()'), '开始一轮应预热音色列表')
 assert.ok(/voiceModule\(\)/.test(source), '没有语音模块时要能降级')
-console.log('  ✓ 发音走 window.__dwlVoice，不再引用服务端音频')
+console.log('  ✓ 发音走浏览器自带 speechSynthesis，不再引用服务端音频')
 
 console.log('\n全部通过 ✓')

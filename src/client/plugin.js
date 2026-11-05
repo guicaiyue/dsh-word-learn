@@ -69,6 +69,8 @@
 
 import React from 'react'
 import LOGIC from './dashboard/logic.js'
+import { installWordcard } from './features/wordcard/index.js'
+import { installAnnotate } from './features/annotate/index.js'
 import { CSS as DASHBOARD_CSS } from './dashboard/styles.js'
 
 const h = React.createElement
@@ -3439,6 +3441,12 @@ function apply(ctx) {
       WordLearnPage,
     ),
   )
+
+  // ⑤ 划词卡片与对话标注：页面级功能，跟插件生命周期一起装卸。
+  //    原来是两段注入脚本（自己挂 window 监听、自己防重），现在都是 bundle 内模块，
+  //    install 返回 dispose，交给 ctx.effect 统一卸载（HMR 重挂也不会叠监听）。
+  ctx.effect(installWordcard, 'dsh-word-learn: wordcard')
+  ctx.effect(installAnnotate, 'dsh-word-learn: annotate')
 
   // ④ 样式。作为 effect 注册，卸载时自动摘掉。
   ctx.effect(() => {

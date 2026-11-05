@@ -20,5 +20,5 @@
     "types": ["node"]
   },
   "include": ["src/**/*.ts", "src/**/*.js", "tsdown.config.ts", "vitest.config.ts"],
-  "exclude": ["node_modules", "dist", "lib", "assets", "scripts", "tests"]
+  "exclude": ["node_modules", "dist", "lib", "scripts", "tests"]
 }
