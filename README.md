@@ -114,24 +114,34 @@ python scripts\build_dict.py
 
 ## 接口
 
-| 方法     | 路径                          | 说明                                                             |
-| -------- | ----------------------------- | ---------------------------------------------------------------- |
-| GET      | `/dsh-word-learn/client.js`   | 前端脚本（按 mtime 热重载）                                      |
-| GET      | `/dsh-word-learn/voice.js`    | 前端语音模块（speechSynthesis，零网络；按 mtime 热重载）         |
-| GET      | `/dsh-word-learn/annotate.js` | 对话内联标注脚本（按 mtime 热重载）                              |
-| GET/POST | `/dsh-word-learn/lookup`      | 查词（`word`, `sentence`, `enrich`）                             |
-| GET/POST | `/dsh-word-learn/translate`   | 整句翻译（`text`），永远回 200 + `ok`                            |
-| POST     | `/dsh-word-learn/save`        | 拆词（`text`）                                                   |
-| GET      | `/dsh-word-learn/list`        | 生词本（`limit`, `offset`, `tier`, `starred`, `order`）          |
-| POST     | `/dsh-word-learn/update`      | 改画像/收藏/笔记                                                 |
-| POST     | `/dsh-word-learn/remove`      | 移除                                                             |
-| GET      | `/dsh-word-learn/dashboard`   | 学习页全部聚合数据（`days`）                                     |
-| GET      | `/dsh-word-learn/queue`       | 今日到期队列（`limit`, `track`）                                 |
-| POST     | `/dsh-word-learn/grade`       | 提交评分（`cardId`, `rating` 1-4）                               |
-| GET      | `/dsh-word-learn/word`        | 单词详情 + 两条线状态（`word`）                                  |
-| GET      | `/dsh-word-learn/models`      | AI 分析可用的文本模型（复用 DSH 模型目录）+ 当前选择             |
-| POST     | `/dsh-word-learn/model`       | 选 AI 分析模型（`provider`,`model`；或 `reset:true` 回到第一个） |
-| GET      | `/dsh-word-learn/model-info`  | AI 分析当前实际用的模型 + 来源（兼容旧接口）                     |
+| 方法     | 路径                             | 说明                                                             |
+| -------- | -------------------------------- | ---------------------------------------------------------------- |
+| GET      | `/dsh-word-learn/client.js`      | 前端脚本（按 mtime 热重载）                                      |
+| GET      | `/dsh-word-learn/core.js`        | 划词纯判定核心（`window.__dwlCore`，按 mtime 热重载）            |
+| GET      | `/dsh-word-learn/voice.js`       | 前端语音模块（speechSynthesis，零网络；按 mtime 热重载）         |
+| GET      | `/dsh-word-learn/annotate.js`    | 对话内联标注脚本（按 mtime 热重载）                              |
+| GET/POST | `/dsh-word-learn/lookup`         | 查词（`word`, `sentence`, `enrich`）                             |
+| GET/POST | `/dsh-word-learn/translate`      | 整句翻译（`text`），永远回 200 + `ok`                            |
+| POST     | `/dsh-word-learn/save`           | 拆词（`text`）                                                   |
+| GET      | `/dsh-word-learn/list`           | 生词本（`limit`, `offset`, `tier`, `starred`, `order`）          |
+| POST     | `/dsh-word-learn/update`         | 改画像/收藏/笔记                                                 |
+| POST     | `/dsh-word-learn/remove`         | 移除                                                             |
+| GET      | `/dsh-word-learn/dashboard`      | 学习页全部聚合数据（`days`）                                     |
+| GET      | `/dsh-word-learn/queue`          | 今日到期队列（`limit`, `track`）                                 |
+| POST     | `/dsh-word-learn/grade`          | 提交评分（`cardId`, `rating` 1-4）                               |
+| GET      | `/dsh-word-learn/word`           | 单词详情 + 两条线状态（`word`）                                  |
+| GET      | `/dsh-word-learn/models`         | AI 分析可用的文本模型（复用 DSH 模型目录）+ 当前选择             |
+| POST     | `/dsh-word-learn/model`          | 选 AI 分析模型（`provider`,`model`；或 `reset:true` 回到第一个） |
+| GET      | `/dsh-word-learn/model-info`     | AI 分析当前实际用的模型 + 来源（兼容旧接口）                     |
+| POST     | `/dsh-word-learn/enrich-ai`      | 手动触发/补 AI 分析（`word`, `force`, `field`）                  |
+| GET      | `/dsh-word-learn/quiz`           | 生成选择题（`word`）                                             |
+| GET      | `/dsh-word-learn/repair`         | 补记卡材料（`cardId`）                                           |
+| POST     | `/dsh-word-learn/repair/log`     | 记一条补记尝试（`cardId`, `stage`, `ok`, `guess`, `elapsedMs`）  |
+| POST     | `/dsh-word-learn/repair/clear`   | 清补记债（`wordId` 或 `cardId`）                                 |
+| GET      | `/dsh-word-learn/repair/stats`   | 补记统计（`days` 1–90，默认 14）                                 |
+| GET/POST | `/dsh-word-learn/repair/recap`   | 次日回访：GET 取题（`limit` ≤10），POST 提交（`wordId` 等）      |
+| GET      | `/dsh-word-learn/sense-map`      | 义项地图（`word`）                                               |
+| GET      | `/dsh-word-learn/annotate/words` | 标注目标词表（`limit` 默认 2000，1–5000）                        |
 
 ## 开发
 
@@ -182,7 +192,7 @@ node --no-warnings scripts\test-ai-model.mjs
 # AI 分析模型：/models、/model 路由（假 llm，不花钱）
 node --no-warnings scripts\test-model-routes.mjs
 
-# 设置页「AI 分析模型」的渲染分支（从 dashboard.js 原样切出组件跑）
+# 设置页「AI 分析模型」的渲染分支（vm 整文件加载 dashboard.js，从 __test__ 取组件）
 node scripts\test-settings-ui.mjs
 ```
 
@@ -190,14 +200,20 @@ node scripts\test-settings-ui.mjs
 
 | 改什么                               | 怎么生效                                                                                                              |
 | ------------------------------------ | --------------------------------------------------------------------------------------------------------------------- |
+| `assets/core.js`（划词纯判定）       | 硬刷新页面即可（按 mtime 热重载；wordcard 从 `window.__dwlCore` 取判定）                                              |
 | `assets/wordcard.js`（划词卡片）     | 硬刷新页面即可（按 mtime 热重载）                                                                                     |
 | `assets/annotate.js`（对话内联标注） | 硬刷新页面即可（按 mtime 热重载，no-store）                                                                           |
+| `assets/voice.js`（语音合成）        | 硬刷新页面即可（同上）                                                                                                |
 | `assets/dashboard.js`（学习页）      | **要重新激活插件**：宿主在激活时把 client 半边读成快照，单刷新页面不够；改一下 `cordis.patch.yml` 触发 HMR 或重启宿主 |
-| `lib/*.js`（宿主侧）                 | **重挂插件**即可，不必重启宿主（见下）                                                                                |
+| `lib/**/*.mjs`（宿主侧）             | **重挂插件**即可，不必重启宿主（见下）                                                                                |
 
-**改生效范围之后怎么验**：`node scripts/test-scope.mjs` 从 `wordcard.js` 里切出真实的
-`SCOPE_SELECTOR` / `inConversation` 求值（不是复制一份逻辑），覆盖「对话正文该生效」
-与「左栏/右栏/对话面板根不该生效」两组。真机验证见下面「怎么确认划词范围生效」。
+注入顺序固定：`core.js` → `voice.js` → `client.js` → `annotate.js`。`core.js` 必须最先——
+`wordcard.js` 的判定（生效范围、排除范围、语音降级）全部从 `window.__dwlCore` 取，取不到就静默
+不装卡片（页面其它功能不受影响，硬刷新拿到新注入行即恢复）。
+
+**改生效范围之后怎么验**：`node scripts/test-scope.mjs` 用 `vm` 整文件加载 `assets/core.js`（浏览器
+IIFE，提供最小 `window` 桩），从 `window.__dwlCore` 取**真实函数**求值（不是复制一份逻辑），覆盖
+「对话正文该生效」与「左栏/右栏/对话面板根不该生效」两组。真机验证见下面「怎么确认划词范围生效」。
 
 **改了 `lib/` 怎么不重启就生效**（2026-11-04 实测有效）：往 profile 的
 `cordis.patch.yml` 末尾追加一行注释（内容随便，只要文件变了），HMR 会重排一次 profile，
@@ -217,8 +233,6 @@ node scripts\test-settings-ui.mjs
 `dsh-word-learn` —— 这是权威信号。有的话，用清单里的 `url` 字段去取脚本，
 形态是 `/plugins/??dsh-word-learn/client.js&rev=<hash>`（`??` 是模块加载器的分隔符）。
 `/plugins/dsh-word-learn/client.js` 这种拼法**一定 404**。
-| GET | `/dsh-word-learn/voice.js` | 前端语音模块（speechSynthesis，零网络；按 mtime 热重载） |
-| GET | `/dsh-word-learn/annotate.js` | 对话内联标注脚本（按 mtime 热重载） |
 
 **怎么确认划词范围生效**：在 DSH 页面控制台跑下面这段，然后在左栏划一次、
 再去对话正文划一次：

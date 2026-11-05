@@ -23,18 +23,25 @@
 | 路径                               | 跑在哪                        | 能做什么                                                  | 禁止什么                                         |
 | ---------------------------------- | ----------------------------- | --------------------------------------------------------- | ------------------------------------------------ |
 | `lib/index.js`                     | 宿主（Node ESM）              | 注入行、信任栅栏、registerRoute 包装、挂载/卸载           | 写业务算法；写 handler；拼 SQL；import `assets/` |
-| `lib/routes/*.mjs`                 | 宿主（Node ESM）              | 25 条路由按组注册：assets/study/review/ai/repair/annotate | 绕开 registerRoute；自己拼响应头                 |
+| `lib/routes/*.mjs`                 | 宿主（Node ESM）              | 26 条路由按组注册：assets/study/review/ai/repair/annotate | 绕开 registerRoute；自己拼响应头                 |
 | `lib/routes/shared.mjs`            | 宿主（Node ESM）              | safeSend / fail / readJson / intParam 之外的公共出口      | 直接 res.writeHead 二次写头                      |
 | `lib/routes/paths.mjs`             | 宿主（Node ESM）              | 路由路径常量唯一出口                                      | handler 里写死路径字符串                         |
 | `lib/runtime.mjs`                  | 宿主（Node ESM）              | 词典/用户库单例、前端脚本 mtime 缓存                      | 路由层状态；加载 assets 里的业务逻辑             |
 | `lib/lookup.mjs`                   | 宿主（Node ESM）              | 查词组装（词典 + 补全 + 生词本 + 警告）                   | 直接注册路由                                     |
 | `lib/http.mjs`                     | 宿主（Node ESM）              | 路由层 query 参数读值与钳制                               | 在 handler 里裸写 `Number(...)`；自己夹上下限    |
-| `lib/*.mjs`、`lib/text.js`         | 宿主（Node ESM）              | 词典、存储、排期、翻译、AI、R5、文本工具                  | import `assets/`；模块加载时开用户库             |
+| `lib/store.mjs`                    | 宿主（Node ESM）              | 用户库门面：open/退避重试/close + 薄委托                  | 写业务 SQL（SQL 在 `lib/store/*.mjs`）           |
+| `lib/store/*.mjs`                  | 宿主（Node ESM）              | schema/迁移、生词本、统计/补记、设置；首参是 Store 实例   | 自己 open 库；把 `store.db` 往路由层传           |
+| `lib/ai-enrich.mjs`                | 宿主（Node ESM）              | 再导出层：保持既有 import 路径与导出名                    | 往里加实现（加进 `lib/enrich/*.mjs`）            |
+| `lib/enrich/*.mjs`                 | 宿主（Node ESM）              | AI 分析、义项材料、出题、后台队列、模型调用               | 直接读库；把外部失败抛给交互路径                 |
+| `lib/*.mjs`、`lib/text.js`         | 宿主（Node ESM）              | 词典、排期、翻译、R5、文本工具                            | import `assets/`；模块加载时开用户库             |
+| `assets/core.js`                   | 页面（普通 `<script>`，IIFE） | 划词纯判定：生效/排除范围、语音降级（`window.__dwlCore`） | DOM 副作用；重复实现判定（wordcard 只消费）      |
+| `assets/wordcard.js`               | 页面（普通 `<script>`，IIFE） | 划词卡片、浮层、调本插件路由；判定全部从 core 取          | import/export、`require`、`process`、改正文      |
+| `assets/voice.js`                  | 页面（普通 `<script>`，IIFE） | 浏览器语音合成封装（`window.__dwlVoice`）                 | 网络请求；音频缓存；改生效范围判定               |
 | `assets/wordcard.js`               | 页面（普通 `<script>`，IIFE） | 划词判定、浮层卡片、调本插件路由                          | import/export、`require`、`process`、改正文      |
 | `assets/annotate.js`               | 页面（普通 `<script>`，IIFE） | 给已学词加虚线下划线                                      | 同上；标代码块/流式内容/其它插件弹窗             |
 | `assets/dashboard.js`              | DSH 客户端（React 模块）      | 左栏入口、学习页、客户端 locale                           | Node API；ESM import；直连 SQLite                |
 | `data/ecdict.db`                   | 只读                          | ECDICT 精简词典，可重建                                   | 写入；提交进 git                                 |
-| `$DSH_HOME/dsh-word-learn/user.db` | 只经 `lib/store.mjs`          | 生词本、卡片、复习日志、设置                              | 测试直连真实库                                   |
+| `$DSH_HOME/dsh-word-learn/user.db` | 只经 `lib/store.mjs` 门面     | 生词本、卡片、复习日志、设置                              | 测试直连真实库                                   |
 | `$DSH_HOME/dsh-word-learn/cache/`  | 可删                          | 翻译缓存（发音不走网络，没有音频缓存）                    | 当持久数据依赖                                   |
 | `scripts/test-*.mjs`               | Node（手跑）                  | 回归脚本，可单独执行                                      | 真实网络、真实用户库                             |
 | `tests/`                           | Node（`node --test`）         | 新增功能的单测                                            | 同上                                             |
@@ -111,12 +118,14 @@
 
 - `lib/index.js` 默认导出 `{ name, apply(root) }`（宿主契约）。
 - 其余 `lib/*` 一律**命名导出**，方便测试按需引；不要为整齐加 `default`。
-- `assets/` 的 IIFE 不导出，状态挂 `window.__dwl*`；`dashboard.js` 只导出 `{ inject, apply }`。
+- `assets/` 的 IIFE 不导出，状态挂 `window.__dwl*`（`core.js` → `__dwlCore`、`voice.js` → `__dwlVoice`）；
+  `dashboard.js` 只导出 `{ inject, apply }`，另挂 `__test__` 供单测取组件/纯函数（`tests/helpers/dashboard.mjs`）。
+- `lib/store/*.mjs`、`lib/enrich/*.mjs` 的命名导出第一个参数是依赖（Store 实例 / 假对象），不 import 单例。
 - 测试脚本不导出，用 `process.exitCode` 决定成败。
 
 ### 3.5 异步与错误处理
 
-照 `lib/index.js` 抄，别自创：
+照现有 handler 与 `lib/routes/shared.mjs` 抄，别自创：
 
 1. 路由 `handler` 可以 `async`，但**参数解析失败必须自己 `sendJson(..., 400, ...)` 返回**；
    抛给外层只能得到 500，而 400 才是事实。
@@ -147,18 +156,28 @@ const limit = intParam(url, 'limit', { fallback: 200, min: 1, max: 500, floor: t
 `max-lines` 按**代码行**算：空行和注释不计。所以预算衡量的是"代码有多复杂"，不是"文件多长"，
 注释写得多不会报警。默认 400；已豁免的都在 `eslint.config.js` 的 `CODE_BUDGET`，每一条都是历史债：
 
-| 文件                  | 预算    | 现状（代码行）                    |
-| --------------------- | ------- | --------------------------------- |
-| `lib/index.js`        | 210     | 入口：注入行 + 栅栏 + 挂载/卸载   |
-| `lib/routes/*.mjs`    | 400     | 六组路由，单组最重约 234 行       |
-| `lib/runtime.mjs`     | 400     | 单例 + 三段脚本缓存               |
-| `lib/lookup.mjs`      | 400     | 查词组装                          |
-| `lib/store.mjs`       | 800     | schema + migrate + 全部用户库读写 |
-| `lib/ai-enrich.mjs`   | 620     | 分析 / 义项 / 队列 / 出题         |
-| `assets/dashboard.js` | 3400    | 学习页四视图 + CSS，最大          |
-| `assets/annotate.js`  | 1300    | 标注全流程                        |
-| `assets/wordcard.js`  | 1150    | 划词卡片 + CSS                    |
-| `scripts/test-*.mjs`  | 380–560 | 端到端脚本，长是正常的            |
+| 文件                        | 预算 | 现状（代码行）                                      |
+| --------------------------- | ---- | --------------------------------------------------- |
+| `lib/index.js`              | 210  | 203：注入行 + 栅栏 + registerRoute 包装 + 挂载/卸载 |
+| `lib/routes/*.mjs`          | 400  | 默认预算；六组里最重 repair 230                     |
+| `lib/runtime.mjs`           | 400  | 29：单例 + 四段脚本缓存                             |
+| `lib/lookup.mjs`            | 400  | 71：查词组装                                        |
+| `lib/http.mjs`              | 400  | 17：query 读值与钳制                                |
+| `lib/store.mjs`             | 150  | 116：门面 open/重试/close + 25 个薄委托             |
+| `lib/store/*.mjs`           | 400  | 走默认；最重 words 308                              |
+| `lib/ai-enrich.mjs`         | 10   | 5：再导出层                                         |
+| `lib/enrich/*.mjs`          | 400  | 走默认；最重 llm 195                                |
+| `lib/r5.mjs`                | 380  | 348：R5 回访 + 义项地图                             |
+| `lib/schedule.mjs`          | 300  | 266：FSRS 映射 / 队列 / 毕业                        |
+| `lib/dict.mjs`              | 260  | 208：ECDICT 查询                                    |
+| `assets/core.js`            | 400  | 80：划词纯判定（默认预算）                          |
+| `assets/dashboard.js`       | 3900 | 3728：学习页四视图 + CSS，最大                      |
+| `assets/annotate.js`        | 1300 | 1283：标注全流程                                    |
+| `assets/wordcard.js`        | 1030 | 1026：划词卡片 + CSS（只剩 4 行余量）               |
+| `assets/voice.js`           | 400  | 388：语音封装（默认预算）                           |
+| `scripts/test-routes.mjs`   | 680  | 650                                                 |
+| `scripts/test-r5.mjs`       | 590  | 559                                                 |
+| `scripts/test-annotate.mjs` | 590  | 560                                                 |
 
 **预算是警报，不是目标。** 贴着上限写不算达标，离上限很远也不代表写得好。
 
@@ -203,14 +222,16 @@ const limit = intParam(url, 'limit', { fallback: 200, min: 1, max: 500, floor: t
 
 ### 5.1 注册位置
 
-所有路由只能在 `lib/index.js` 的 `root.inject(['webServer'], (ctx) => { ... })` 里注册，
-并经过 `registerRoute`（它自动套栅栏、方法白名单、500 兜底）。别处直接
-`ctx.webServer.register` 会绕过栅栏。
+所有路由按领域注册在 `lib/routes/{assets,study,review,ai,repair,annotate}.mjs`：
+各组的 `registerXxxRoutes(ctx, registerRoute)` 在 `lib/index.js` 的
+`root.inject(['webServer'], (ctx) => { ... })` 里挂上；`registerRoute` 自动套栅栏、方法白名单、500 兜底。
+别处直接 `ctx.webServer.register` 会绕过栅栏。
 
-- `kind: 'exact'` + 完整路径；路径常量集中在文件头（如 `API_LOOKUP`）。
+- `kind: 'exact'` + 完整路径；路径常量集中在 `lib/routes/paths.mjs`（如 `API_LOOKUP`），handler 里不写死。
 - **写操作必须显式 `methods: ['POST']`**；不声明等于任何方法都放行，GET 也能顺手写库。
-- 前端脚本路由（`/client.js`、`/annotate.js`）不声明 methods，但必须 `Cache-Control: no-store` 并按 mtime 重读。
-- 现状例外：`/update`、`/remove`、`/grade`、`/model` 等历史路由没声明 methods，改动它们时补上，别照抄。
+- 前端脚本路由（`core.js`/`voice.js`/`client.js`/`annotate.js`）声明方法白名单 `GET`，
+  必须 `Cache-Control: no-store` 并按 mtime 重读（`lib/runtime.mjs` 的 `makeJsLoader`）。
+- 新增一组领域时，才需要在 `lib/index.js` 里加一行 `registerXxxRoutes`。
 
 ### 5.2 入参
 
@@ -246,9 +267,9 @@ const limit = intParam(url, 'limit', { fallback: 200, min: 1, max: 500, floor: t
 
 ### 5.4 新增一条路由的清单
 
-1. 路径常量加到 `lib/index.js` 头部；
-2. `registerRoute` 实现，handler 只做解析 + 转发；
-3. 业务进 `lib/*.mjs` 并补单测；
+1. 路径常量加到 `lib/routes/paths.mjs`；
+2. handler 写进所属的 `lib/routes/{组}.mjs`，用 `registerRoute` 包一层；新组才改 `lib/index.js` 的挂载列表；
+3. 业务进 `lib/*.mjs`（用户库写入进 `lib/store/*.mjs`）并补单测；
 4. `README.md`「接口」表加一行（方法 / 路径 / 说明 + 参数）；
 5. `scripts/test-routes.mjs` 加端到端断言（桩 ctx 真跑，不用重启宿主）；
 6. 前端要用的，在各 `assets/*.js` 的 `API` 常量表加一行；
@@ -259,44 +280,48 @@ const limit = intParam(url, 'limit', { fallback: 200, min: 1, max: 500, floor: t
 ### 5.5 handler 的边界
 
 允许：读 `req`、`readJson`、`new URL`、校验与钳制、调 `store`/`dict`/`schedule`/`translate`/
-`ai-enrich`、`safeSend`/`fail`/`unavailable`。
+`lib/enrich/*` 的导出、`safeSend`/`fail`/`unavailable`。
 不允许：SQL、FSRS 参数计算、fetch、文件路径拼接、超过 20 行的聚合逻辑。出现就该拆 service（§4.3）。
 
 ## 6. 数据访问
 
 ### 6.1 三个数据位置
 
-| 数据   | 位置                               | 可再生                        | 规则                      |
-| ------ | ---------------------------------- | ----------------------------- | ------------------------- |
-| 词典   | `<插件目录>/data/ecdict.db`        | 是（`scripts/build_dict.py`） | 只读，只经 `lib/dict.mjs` |
-| 用户库 | `$DSH_HOME/dsh-word-learn/user.db` | **否**                        | 只经 `lib/store.mjs` 打开 |
-| 缓存   | `$DSH_HOME/dsh-word-learn/cache/`  | 是                            | 可直接删，不当持久数据    |
+| 数据   | 位置                               | 可再生                        | 规则                                                      |
+| ------ | ---------------------------------- | ----------------------------- | --------------------------------------------------------- |
+| 词典   | `<插件目录>/data/ecdict.db`        | 是（`scripts/build_dict.py`） | 只读，只经 `lib/dict.mjs`                                 |
+| 用户库 | `$DSH_HOME/dsh-word-learn/user.db` | **否**                        | 只经 `lib/store.mjs` 门面打开（SQL 在 `lib/store/*.mjs`） |
+| 缓存   | `$DSH_HOME/dsh-word-learn/cache/`  | 是                            | 可直接删，不当持久数据                                    |
 
 用户库路径由 `DSH_HOME` 决定（缺省 `~/.dsh`），这个变量同时是测试隔离开关（§9.2）。
 
 ### 6.2 SQL 归口
 
-- 用户库**新 SQL 一律加在 `lib/store.mjs` 的方法里**（现在 60+ 处）。
-- 排期/回访/标注模块接收 `store.db` 句柄做针对性查询（`schedule`/`r5`/`annotate` 的历史写法）。
+- 用户库**新 SQL 一律加在 `lib/store/{words,review,settings}.mjs`**（schema/迁移在 `schema.mjs`）；
+  门面 `lib/store.mjs` 只做 open/退避重试/close 与 25 个薄委托，不写新逻辑。
+- 子模块函数**第一个参数是 Store 实例**（`touch(store, info, sentence)`）：「先 open() 再拿 `store.db`」
+  是用户库原语的一部分，拆开后不能两边各判一次打开状态；门面把 `this` 传下去。
+- 排期/回访/标注接收 `store` 实例后读 `store.db` 做针对性查询（`schedule`/`r5`/`annotate` 的历史写法）。
   这是历史债：**只允许收窄，不允许扩散**——不要在这些模块新增表级写入。
 - 词典 SQL 只许在 `lib/dict.mjs`；别处要词数据调 `dict.lookup()`。
 - 参数一律绑定（`prepare(...).get(word)`），不拼字符串。拼 SQL 的地方就是注入点。
 
 ### 6.3 schema 变更
 
-1. 改 `lib/store.mjs` 的 `SCHEMA`（`CREATE TABLE IF NOT EXISTS` 只对新库生效）；
-2. **必须**在 `migrate()` 加增量步骤：`PRAGMA table_info` 查列、缺列 `ALTER TABLE ADD COLUMN`；
-3. 迁移必须幂等：老库/新库/半新库跑同一段代码得到同一结构；
+1. 改 `lib/store/schema.mjs` 的 `SCHEMA`（`CREATE TABLE IF NOT EXISTS` 只对新库生效）；
+2. **必须**在同文件的 `migrate()` 加增量步骤：`PRAGMA table_info` 查列、缺列 `ALTER TABLE ADD COLUMN`；
+3. 迁移必须幂等：老库 / 新库 / 半新库跑同一段代码得到同一结构；
 4. 在 `DESIGN.md` §2 记一笔：日期、加改了什么、为什么、怎么迁。
    反例见风险 14：`learning_steps` 没存，排期静默失效（间隔永远 0 天，不报错）。
 
 禁止：`DROP TABLE`、重建库、改列类型、在迁移里写业务逻辑。用户数据不可再生。
+子模块（words/review/settings）不许各自迁移：库形状只有一个出口，避免两个模块对同一列各写一遍。
 
 ### 6.4 迁移与备份
 
 - 开发前先复制 `user.db`（含 `-wal`/`-shm`）到临时目录，拿副本做实验。
 - 重跑迁移验证时用 `DSH_HOME=<临时目录>`，不要动真实库。
-- 写库测试必须 `mkdtemp` 临时 `DSH_HOME`（§9.2）；`store.mjs` 在 import 时按 `DSH_HOME` 定路径，
+- 写库测试必须 `mkdtemp` 临时 `DSH_HOME`（§9.2）；`lib/store/schema.mjs` 在 import 时按 `DSH_HOME` 定路径（门面与子模块都吃这份），
   所以**必须在 import 之前设好**环境变量。
 - 备份不是插件职责：README 已写"生词本不可再生，请备份"，不要加自动备份/云同步。
 
@@ -320,6 +345,10 @@ const limit = intParam(url, 'limit', { fallback: 200, min: 1, max: 500, floor: t
 判据：**要挂进 DSH 布局 → client 模块；只加工页面内容 → 普通 script。**
 不要为"用上 React"把纯 DOM 功能塞进客户端包；也别想在普通 script 里注册 slot。
 
+注入顺序固定为 `core.js` → `voice.js` → `client.js` → `annotate.js`（`lib/index.js` 的 `INJECT_TEXT`，
+四个脚本各自带 `window.__dwl*` 守卫）。`core.js` 必须最先：`wordcard.js` 的判定全部从
+`window.__dwlCore` 取，取不到就静默不装卡片（不在 wordcard 里重复实现，避免口径漂移）。
+
 ### 7.2 样式
 
 - 类名 `dwl-` 前缀，选择器限定在自己的根节点下（`.dwl-card ...`）。
@@ -336,7 +365,8 @@ const limit = intParam(url, 'limit', { fallback: 200, min: 1, max: 500, floor: t
 - `annotate.js`：只在 `[data-chat-flow]` 内操作，且只包裹**自己认定的目标词**节点。
   排除代码块/行内代码/文件名/URL/链接、流式生成（`[data-streaming]` + 文本稳定 600ms）、
   折叠内容（只标标题）、其它插件弹窗。原文不改、不翻译。
-- 作用范围判定必须从真实源码切出来测（`scripts/test-scope.mjs`），不要复制一份逻辑。
+- 作用范围判定**整文件 vm 加载 `assets/core.js`** 来测（`scripts/test-scope.mjs`），不在测试里复制逻辑；
+  `wordcard.js` 是否仍从 `window.__dwlCore` 取用，另有静态断言兜着。
 
 ### 7.4 无障碍
 
@@ -346,11 +376,11 @@ const limit = intParam(url, 'limit', { fallback: 200, min: 1, max: 500, floor: t
 
 ### 7.5 热重载与验证
 
-| 改了什么                                   | 怎么生效                                                      |
-| ------------------------------------------ | ------------------------------------------------------------- |
-| `assets/wordcard.js`、`assets/annotate.js` | 硬刷新页面（mtime 热重载，no-store）                          |
-| `assets/dashboard.js`                      | **重新激活插件**（改 `cordis.patch.yml` 触发 HMR 或重启宿主） |
-| `lib/*`                                    | 重挂插件即可，不必重启宿主                                    |
+| 改了什么                                                                        | 怎么生效                                                      |
+| ------------------------------------------------------------------------------- | ------------------------------------------------------------- |
+| `assets/core.js`、`assets/voice.js`、`assets/wordcard.js`、`assets/annotate.js` | 硬刷新页面（mtime 热重载，no-store）                          |
+| `assets/dashboard.js`                                                           | **重新激活插件**（改 `cordis.patch.yml` 触发 HMR 或重启宿主） |
+| `lib/**/*`                                                                      | 重挂插件即可，不必重启宿主                                    |
 
 "生效没有"的权威信号是 `__DSH_BOOT__.entries` 里有没有 `dsh-word-learn`；取脚本用清单里的
 `url` 字段（`/plugins/??dsh-word-learn/client.js&rev=<hash>`），自己拼
@@ -390,30 +420,38 @@ const limit = intParam(url, 'limit', { fallback: 200, min: 1, max: 500, floor: t
 `scripts/test-*.mjs` 是历史端到端脚本，可单跑，但必须登记进 `scripts/test-all.mjs`，
 否则 CI 只跑一半。顺序：单跑通过 → 注册进 `test-all.mjs` → `pnpm verify`。
 
+`tests/unit/*.test.mjs` 是唯一单测目录，命令里的 glob 是 `tests/**/*.test.mjs`：别退回不带路径的
+`node --test`（那会把 `scripts/test-*.mjs` 也当单测跑，重复且更慢）。前端组件/纯函数用
+`tests/helpers/dashboard.mjs`：vm 整文件加载 `assets/dashboard.js`，提供最小 React + fetch 替身，
+从模块的 `__test__` 取 `HoverWord`/`WritePanel`/`SettingsView` 与
+`normalizeSpelling`/`editDistance`/`spellCheck`；`test-scope.mjs` 同样用 vm 加载 `assets/core.js`。
+
 ### 9.2 硬规则
 
 - **必须临时 `DSH_HOME`**：`fs.mkdtempSync(path.join(os.tmpdir(), 'dwl-xxx-'))`，
   在 `import` 插件之前设 `process.env.DSH_HOME`，退出时 `rmSync` 清理。
-  理由：`store.mjs` 在 import 时按 `DSH_HOME` 打开用户库，用真实库跑脚本会真的改排期、加补记债、
+  理由：`lib/store/schema.mjs` 在 import 时按 `DSH_HOME` 定用户库路径，用真实库跑脚本会真的改排期、加补记债、
   写 `review_log`（2026-11-04 踩过）。宿主导出过 `DSH_HOME`，**不能**用"没设才临时"的判断。
 - 禁止真实网络：翻译/LLM/例句必须 stub（假 `ctx.llm`、`fetch` 打桩、已落盘缓存）。断网要能跑。
 - 发音是纯前端 `speechSynthesis`，测试里用 `__setSynth` 注入假 synth，不要真的发声。
 - 禁止打印后目测：用 `assert/strict`，失败信息写中文且能独立读懂，例如
   `assert.equal(got, 'child', 'children 应回退到原形 child，实际得到 ' + got)`。
-- 测前端判定**从真实源码切片段**求值（`test-scope.mjs` 用 `indexOf` 切 `SCOPE_SELECTOR`/`inConversation`），
-  不要在测试里复制实现——那样改了源码测试还绿。
+- 测前端判定**整文件 vm 加载真实源码**求值：`test-scope.mjs` 跑 `assets/core.js` 后从 `window.__dwlCore`
+  取函数；三个 dashboard 前端测试走 `tests/helpers/dashboard.mjs` + `__test__`。不要在测试里复制实现，
+  也不要再按函数名切字符串（注释/缩进一变就碎）。
 - `--allow-real-db` 这类开关默认关闭，只允许人手在确认无副作用时打开。
 
 ### 9.3 什么时候必须有测试
 
-| 改动                    | 要求                                                         |
-| ----------------------- | ------------------------------------------------------------ |
-| 新增/修改路由           | `scripts/test-routes.mjs` 加断言（桩 ctx 真跑）              |
-| 修 bug                  | **先写一条会红的回归**再修；交付说明里写"哪个断言之前是红的" |
-| 改排期/FSRS 映射        | 单测覆盖间隔序列（`test-schedule.mjs` 是范例）               |
-| 改前端作用范围/标注判定 | `test-scope.mjs`/`test-annotate.mjs` 必须仍绿                |
-| 改响应形状              | 同步改前端调用与端到端断言                                   |
-| 纯注释/文档             | 不需要                                                       |
+| 改动                     | 要求                                                           |
+| ------------------------ | -------------------------------------------------------------- |
+| 新增/修改路由            | `scripts/test-routes.mjs` 加断言（桩 ctx 真跑）                |
+| 修 bug                   | **先写一条会红的回归**再修；交付说明里写"哪个断言之前是红的"   |
+| 改排期/FSRS 映射         | 单测覆盖间隔序列（`test-schedule.mjs` 是范例）                 |
+| 改前端作用范围/标注判定  | `test-scope.mjs`/`test-annotate.mjs` 必须仍绿                  |
+| 改 dashboard 组件/纯函数 | `tests/helpers/dashboard.mjs` 加载后从 `__test__` 取，整文件测 |
+| 改响应形状               | 同步改前端调用与端到端断言                                     |
+| 纯注释/文档              | 不需要                                                         |
 
 ## 10. 完成定义（DoD）
 
@@ -422,6 +460,7 @@ const limit = intParam(url, 'limit', { fallback: 200, min: 1, max: 500, floor: t
 - [ ] 新增行为有测试；修的 bug 有回归断言（且能说明它之前为什么红）。
 - [ ] 没有新增 `eslint-disable`（确需例外时写明原因 + 到期条件，见 §4.4）。
 - [ ] 没有调大 `CODE_BUDGET`；超预算已按 §4.3 拆分。
+- [ ] `pnpm check:cycles` 无环（已包含在 `pnpm verify` 的 `check` 里）。
 - [ ] `pnpm lint:fix` 与 `pnpm format` 已跑，`pnpm format:check` 通过。
 - [ ] `pnpm verify` 全绿，并保留输出。
 - [ ] 注释与代码一致，过时注释已删改。

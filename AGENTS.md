@@ -24,25 +24,33 @@ pnpm format        # 再统一排版
 
 单跑某个回归脚本：`node scripts/test-routes.mjs`（脚本自己造临时 `DSH_HOME`，不碰真实库）。
 
+`pnpm check:cycles` 由 `pnpm check` 带跑（`scripts/check-cycles.mjs`）；`pnpm test:unit` 只跑
+`tests/**/*.test.mjs`，`scripts/test-*.mjs` 归 `pnpm test:legacy`。
+
 ## 2. 改 X 去哪里
 
 | 要改的东西                             | 文件                               | 备注                                                               |
 | -------------------------------------- | ---------------------------------- | ------------------------------------------------------------------ |
-| 划词卡片、选区判定、浮层样式           | `assets/wordcard.js`               | 普通 IIFE；`SCOPE_SELECTOR` 在文件末尾附近                         |
-| 学习页四个视图、侧栏入口、客户端文案   | `assets/dashboard.js`              | React 客户端模块；改完要**重新激活插件**                           |
+| 划词卡片、选区判定、浮层样式           | `assets/wordcard.js`               | 普通 IIFE；判定全从 `window.__dwlCore` 取，别在这里重复实现        |
+| 划词纯判定（生效/排除范围、语音降级）  | `assets/core.js`                   | `window.__dwlCore`；wordcard 只消费，改判定要跑 `test-scope`       |
+| 学习页四个视图、侧栏入口、客户端文案   | `assets/dashboard.js`              | React 客户端模块；改完**重新激活插件**；单测入口 `__test__`。      |
 | 对话内联标注、悬停小卡                 | `assets/annotate.js`               | 普通 IIFE；只在 `[data-chat-flow]` 内动                            |
 | 新增/改一条路由的 handler              | `lib/routes/{组}.mjs`              | 组：assets/study/review/ai/repair/annotate；只解析参数，业务往下走 |
 | 路由路径字符串                         | `lib/routes/paths.mjs`             | 常量唯一出口，别在 handler 里写死路径                              |
 | 响应出口（safeSend / fail / readJson） | `lib/routes/shared.mjs`            | 响应只从 safeSend 出；错误只回稳定 code + 人话                     |
-| 注入行、信任栅栏、registerRoute 包装   | `lib/index.js`                     | 入口只做挂载与卸载，约 200 代码行                                  |
+| 注入行、信任栅栏、registerRoute 包装   | `lib/index.js`                     | 入口只做挂载与卸载，预算 210 代码行（现 203）                      |
 | 词典/用户库单例、前端脚本 mtime 缓存   | `lib/runtime.mjs`                  | 进程级状态；路由模块只消费                                         |
 | 查词结果组装（lookupWord）             | `lib/lookup.mjs`                   | /lookup、/word、/translate 共用                                    |
 | 路由 query 参数读值/钳制               | `lib/http.mjs`                     | 数字参数必须过 `intParam`，别裸写 `Number`                         |
 | 排期、FSRS 映射、队列、毕业/leech      | `lib/schedule.mjs`                 | 别在路由里直接算 FSRS                                              |
-| 用户库 schema、读写、迁移              | `lib/store.mjs`                    | SQL 主要归口；schema 变更见 CONVENTIONS §6.3                       |
+| 用户库生命周期（打开/重试/关闭/委托）  | `lib/store.mjs`                    | 门面：open/退避重试/close + 25 个薄委托，别往里堆逻辑              |
+| SCHEMA 与迁移                          | `lib/store/schema.mjs`             | 表结构/索引/`migrate()`；schema 变更见 CONVENTIONS §6.3            |
+| 生词本、卡片、义项材料读写             | `lib/store/words.mjs`              | SQL 归口之一；函数第一参数是 Store 实例                            |
+| 统计、看板、补记债                     | `lib/store/review.mjs`             | 函数第一参数是 Store 实例                                          |
+| 设置读写                               | `lib/store/settings.mjs`           | 函数第一参数是 Store 实例                                          |
 | 发音（前端语音合成、音色选择）         | `assets/voice.js`                  | 零网络：只用浏览器自带音色，缓存的是偏好不是音频                   |
 | 整句翻译、降级链                       | `lib/translate.mjs`                | 交互路径：失败回 200 + `ok:false`                                  |
-| AI 分析、义项材料、出题、队列          | `lib/ai-enrich.mjs`                | 服务获取走 `service.mjs`                                           |
+| AI 分析、义项材料、出题、队列          | `lib/enrich/*.mjs`                 | `ai-enrich.mjs` 只做再导出；服务获取走 `service.mjs`               |
 | AI 分析用哪个模型                      | `lib/models.mjs`                   | 复用 DSH 模型目录，不自己维护名单                                  |
 | 词典查询、变形回退、词频分级           | `lib/dict.mjs`                     | 只读 `data/ecdict.db`                                              |
 | 回访（R5）、义项地图                   | `lib/r5.mjs`                       | 只记日志，不动 FSRS                                                |
@@ -58,6 +66,7 @@ pnpm format        # 再统一排版
   任何会写库的测试/脚本必须先 `mkdtemp` 临时 `DSH_HOME`（见 CONVENTIONS §9.2）。
 - **不许改 `DESIGN.md` 的历史结论**：那是决策与实测记录。新结论只能追加，并注明日期。
 - **不许为过 lint 加 `eslint-disable`**。确需例外时，必须写原因 + 到期条件，并说明为什么规则不适用。
+- **不许制造 import 环**：`pnpm check:cycles`（挂在 `pnpm check`/`verify` 里）会打印完整环路径。
 - **不许调大 `eslint.config.js` 的 `CODE_BUDGET`** 来让检查变绿。超预算就拆模块。
 - **不许改 `cordis.patch.yml` 的语义**（id/name/insert 结构）。它只是挂载声明；
   改它触发 HMR 是运维手段，不要把语义改掉。
@@ -74,8 +83,8 @@ pnpm format        # 再统一排版
 2. **改前先想测试**：改行为先加一条会红/会绿的断言；修 bug 先补回归（CONVENTIONS §9.3）。
 3. **只改必要的**：不顺手重构无关代码，不批量改注释格式，不重排 import。
 4. **改完自检**：`pnpm lint:fix && pnpm format && pnpm verify`。
-5. **说清生效方式**：`assets/wordcard.js`/`annotate.js` 硬刷新；`assets/dashboard.js`
-   要重新激活插件；`lib/*` 重挂插件即可。改完前端要告诉人"怎么看到效果"。
+5. **说清生效方式**：`assets/core.js`/`wordcard.js`/`voice.js`/`annotate.js` 硬刷新；
+   `assets/dashboard.js` 要重新激活插件；`lib/**/*.mjs` 重挂插件即可。改完前端要告诉人"怎么看到效果"。
 
 ## 5. 交付说明必须包含
 
