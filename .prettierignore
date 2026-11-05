@@ -1,0 +1,16 @@
+# 依赖与产物
+node_modules/
+pnpm-lock.yaml
+data/
+*.db
+
+# 历史设计稿与实验材料：只读参考，不参与格式化
+design/
+lab/
+DESIGN.md
+
+# 测试用的 HTML 夹具（原样保留，便于对照真实页面）
+scripts/test-annotate-fixture/
+
+# 图标是手写 SVG，不做格式化
+icon.svg

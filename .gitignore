@@ -7,6 +7,11 @@ node_modules/
 coverage/
 *.log
 
+# 本机同步 / 缓存
+# 注意：data/ecdict.db 是构建产物，但仓库有意跟踪（开箱可用），不要加进忽略
+cache/
+.sync_temp_dir/
+
 # 本地个人配置
 *.local.json
 .env
