@@ -2,83 +2,87 @@
 
 ## 适用场景
 
-目标文件：{{文件路径，例如 assets/dashboard.js}}。
-触发原因通常是：接近或超过 `CODE_BUDGET`、一个文件多职责、改一处要动三个不相邻区域、
-某段逻辑想单独测试却只能整文件跑。
+目标文件：{{文件路径，例如 src/client/plugin.js}}。
+触发原因通常是：一个文件多职责、改一处要动三个不相邻区域、某段逻辑想单独测试却只能整文件跑、
+同一份契约在 `src/host/` 与 `src/client/` 各有一份且开始不一致。
 **纯搬迁，不改行为**；改行为另开任务（用 `fix-bug.md` / `add-route.md`）。
+
+行数不再设门禁（ADR-0005 删了 `CODE_BUDGET`/`max-lines`）：拆分的理由是职责与耦合，
+不是"文件超过 N 行"。唯一体量约束是客户端产物预算（`pnpm artifact:check`）。
 
 ## 先读什么（别跳）
 
-| 文件               | 行区                           | 为什么                                                             |
-| ------------------ | ------------------------------ | ------------------------------------------------------------------ |
-| `eslint.config.js` | 19–51                          | `CODE_BUDGET` 默认 400、豁免表、`skipBlankLines/skipComments` 口径 |
-| `CONVENTIONS.md`   | §4 模块与拆分                  | 拆分判据、抽纯函数的顺序、禁止事项                                 |
-| 目标文件           | 1–45 文件头 + 全部导出/入口    | 先看清它对外承诺了什么                                             |
-| 目标文件           | 你要拆的那段及其调用点         | 用 grep 找全部引用，别漏动态调用                                   |
-| 相关测试           | `scripts/test-*.mjs`、`tests/` | 拆完这些必须仍绿，它们是"行为不变"的证据                           |
+| 文件                      | 位置（按符号搜）                                | 为什么                                      |
+| ------------------------- | ----------------------------------------------- | ------------------------------------------- |
+| `CONVENTIONS.md`          | §4 模块与拆分                                   | 拆分判据、抽纯函数的顺序、禁止事项          |
+| `.dependency-cruiser.cjs` | `forbidden` 四条                                | 拆完不能新增环/跨边界；配置本身不许改来放行 |
+| 目标文件                  | 文件头 + 全部导出/入口                          | 先看清它对外承诺了什么                      |
+| 目标文件                  | 你要拆的那段及其调用点                          | 用 grep 找全部引用，别漏动态 import         |
+| 相关测试                  | `tests/*/*.test.mjs`、`*.test.tsx`、`*.test.ts` | 拆完这些必须仍绿，它们是"行为不变"的证据    |
+| `AGENTS.md`               | §2 定位表、§3 硬约束                            | 拆完同步定位表（不写行号）                  |
 
 ## 步骤
 
-1. **先量体积，写进交付说明**：`wc -l` 粗看 + `pnpm lint` 看有没有报 `max-lines`。
-   预算是**代码行**（去空行去注释），物理行数会大不少，别拿 `wc -l` 当预算。
+1. **先量体积，写进交付说明**：`wc -l` 粗看 + 看这个文件是不是明显承担了两个职责。
+   不追行数指标，只记录拆前拆后的职责边界。
 2. **画依赖，定切法**：列"输入 → 输出"清单。优先抽满足以下条件的部分：
    纯函数（无 `ctx`、无 IO）、被多处调用、改得最频繁。
-   给新文件起职责名（`schedule.mjs`、`ai-enrich.mjs` 这种），不要 `utils.mjs`。
+   给新文件起职责名（`schedule.ts`、`ai-enrich.ts`、`wordcard/card.js` 这种），不要 `utils.mjs`。
 3. **先加测试再搬**：如果这段逻辑现在没有测试，先补一条能过的断言（证明基线）。
    搬完同一条断言必须仍绿——这是"行为没变"的唯一证据。
-4. **搬代码**：新建 `lib/<职责>.mjs`（或子目录），命名导出；原文件改为 `import`/薄委托。
-   拆 store 这类有状态模块：子模块函数**第一个参数是 Store 实例**，门面只留 open/close 与薄委托
-   （CONVENTIONS §6.2），别让两个模块各判一次「库开没开」。
-   拆 `assets/` 注入脚本：新脚本挂 `window.__dwlXxx` 全局、消费方**使用时读**（不许模块级快照）；
-   同时改四处：`lib/routes/paths.mjs` 常量、`lib/routes/assets.mjs` 路由、`lib/index.js` 的
-   `SCRIPT_PATHS`（顺序即依赖，loader 必须 `async=false`）、`README.md`「接口」表；
-   并同步 `tests/unit/inject-order.test.mjs`。样式拆出只导出 CSS 字符串，末尾
-   `dispatchEvent(new CustomEvent('dwl:assets-ready'))` 通知消费方。
-   调用点一处一处改，不要一次全改完再跑。
-5. **处理新文件的预算**：默认 400；确实需要更高，才在 `eslint.config.js` 的 `CODE_BUDGET.files`
-   里加**新文件**的条目，并同步 `CONVENTIONS.md` §4.1 的表。
-   **旧文件的预算是下调对象，不是上调对象**：2026-11-05 拆完后 `dashboard.js` 3900→3000、
-   `wordcard.js` 1030→540，新增条目只有 `dashboard-style.js`（509，CSS 模板串）。
+4. **搬代码**：
+   - 宿主模块：新建 `src/host/<职责>.ts`（或子目录），命名导出；原文件改为 `import`/薄委托。
+     拆 store 这类有状态模块：子模块函数**第一个参数是 Store 实例**，门面只留 open/close 与薄委托
+     （CONVENTIONS §6.2），别让两个模块各判一次「库开没开」。
+   - 前端模块：新文件放在 `src/client/features/` 或 `src/client/dashboard/` 下；装配仍留
+     `installXxx()`（返回 dispose），纯判定/纯函数独立成文件、样式只导出 CSS 字符串。
+     **不要**新建 `window.__dwl*` 全局来给拆出来的模块传值——用 `import`；跨模块共享的状态留在
+     调用方闭包里。
+   - 调用点一处一处改，不要一次全改完再跑。
+5. **同步文档**：`AGENTS.md` §2 定位表、`CONVENTIONS.md` 相关节（不写行号）。
+   新建/搬迁模块要保证文件头注释里「为什么在这」仍然成立。
 6. **跑验证**，绿了再继续下一刀；一次只拆一个模块。
 
 ## 硬约束
 
-- 不调大旧文件的预算来"解决"超限；超限就是要拆。
-- 不跨边界搬：`lib/` 不 import `assets/`，`assets/` 不 import `lib/`（CONVENTIONS §2.1）。
+- 不跨边界搬：`src/client/**` 不 import `src/host/**`，反之亦然（dependency-cruiser 守）。
+- 不改 `.dependency-cruiser.cjs` 放行新环；环就是要修的信号，不是配置问题。
 - 不改变对外契约：路由路径、响应字段、导出的函数名与返回值都不能变。
 - 不把纯 DOM/React 组件抽成"通用组件库"——目前只有一个消费方。
 - 不在搬迁里顺手改逻辑、改注释口吻、重排 import 分组之外的格式。
 - 拆完别留死代码（旧函数、旧常量、不再使用的 import）。
+- 不手改 `dist/**`、`lib/host/**`；拆完要 `pnpm build` 让产物与源码一致。
 - 提交分开：`refactor:` 一次，逻辑改动另一次。
 
 ## 必须执行的验证
 
 ```bash
-pnpm lint                 # 确认目标文件不再超限、新文件没超 400
-pnpm test:unit            # 单测仍绿
-pnpm test:legacy          # 端到端仍绿（路由/前端判定受影响时）
-pnpm verify
-git diff --stat           # 确认改动面与预期一致，没有意外文件
+pnpm build                 # vitest 读 dist/client.js 与 lib/host/**，先重建
+pnpm typecheck             # 双投影：src/** 类型 + 宿主编译
+pnpm deps:check            # 确认没有新环/新跨边界
+pnpm test:unit             # node:test：unit/features/contract 仍绿
+pnpm test:component        # vitest：component + integration 仍绿
+pnpm verify                # 唯一验收
+git diff --stat            # 确认改动面与预期一致，没有意外文件
 ```
 
-如果拆的是排期/存储：额外单跑 `node scripts/test-schedule.mjs` / `node scripts/test-routes.mjs`。
+如果拆的是排期/存储：额外跑 `tests/unit/schedule.test.mjs` / `tests/integration/routes.test.ts`。
 
 ## 交付输出模板
 
 ```text
-目标文件与体积：{{文件}} —— 物理 {{N}} 行，代码行估算 {{M}} / 预算 {{B}}
+目标文件与职责：{{文件}} —— 拆前承担 {{职责1+职责2}}，物理 {{N}} 行
 
 切法：{{原文件的一等职责清单}} → {{新文件1}}、{{新文件2}}，各自职责一句话
 
 改动：
 - {{新文件}} —— 承载 {{职责}}
-- {{原文件}}:{{行区}} —— 改为 import/调用，删掉 {{N}} 行
-- {{CODE_BUDGET / CONVENTIONS §4.1}} —— {{新增/下调了哪条}}
+- {{原文件}} —— 改为 import/调用，删掉 {{N}} 行
+- {{AGENTS.md / CONVENTIONS.md}} —— 同步了哪节定位/判据
 
 行为不变证据：{{测试名}} 搬迁前后均绿；响应/导出契约未变
 
 验证：pnpm verify → {{结果}}；git diff --stat → {{改动面}}
-注入顺序：{{拆分后是否有变；变了就把 8 段顺序写全，并说明谁消费哪个 window.__dwl* 全局}}
 
 剩余风险：{{下一次该拆哪块 / 仍然存在的耦合点}}
 ```
