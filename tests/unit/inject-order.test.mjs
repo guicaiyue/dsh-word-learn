@@ -6,8 +6,9 @@
 // 而这里要守的是「文本层面的顺序与写法」，读源码正好，也跑得最快。
 //
 // 为什么要有这道守卫（2026-11-05 真机事故）：动态 append 的 <script> 默认
-// async=true，41KB 的 dashboard-style.js 可能晚于 client.js 执行，于是
-// dashboard.js 的工厂拿到空的 window.__dwlDashboardCSS —— 页面完全没样式。
+// async=true，大脚本可能晚于 client.js 执行，于是 client 的工厂拿到空的依赖
+// （当时是 dashboard-style 的 CSS）—— 页面完全没样式。
+// 学习页逻辑/样式已并入 bundle（阶段 2），这条守卫继续守着剩下的注入脚本。
 // 单测/回归脚本都是同步按序加载，天然发现不了这类顺序错误，只有真实浏览器会。
 // 所以这里把「谁在谁前面」和「loader 必须 async=false」钉死。
 import { readFileSync } from 'node:fs'
@@ -62,7 +63,7 @@ describe('注入链（lib/index.js 静态契约）', () => {
       inject,
       /\.async=false/,
       '注入 loader 必须设置 s.async=false：动态插入的 <script> 默认 async=true，' +
-        '大脚本（dashboard-style.js）可能晚于 client.js 执行，dashboard.js 会拿到空 CSS。',
+        '大脚本可能晚于 client.js 执行，client 会拿到空的依赖（历史上是 dashboard 的 CSS）。',
     )
     assert.ok(!/\.async=true/.test(inject), '不允许把 .async 显式设回 true')
     // 设置顺序：先 src 再 async 再 onerror —— async 必须在 append 之前赋值才生效。
@@ -102,14 +103,14 @@ describe('注入链（lib/index.js 静态契约）', () => {
     )
   })
 
-  test('关键脚本相对顺序：core → voice → dashboard-logic → dashboard-style → client → annotate', () => {
+  test('关键脚本相对顺序：core → voice → wordcard-style → wordcard-card → client → annotate', () => {
     const order = scriptPathNames()
     assert.equal(order[0], 'CORE_PATH', `core.js 必须最先注入（当前：${order.join(' → ')}）`)
     assert.equal(order[1], 'VOICE_PATH', `voice.js 应紧随 core.js（当前：${order.join(' → ')}）`)
     assertBefore(order, 'CORE_PATH', 'VOICE_PATH')
-    assertBefore(order, 'VOICE_PATH', 'DASHBOARD_LOGIC_PATH')
-    assertBefore(order, 'DASHBOARD_LOGIC_PATH', 'DASHBOARD_STYLE_PATH')
-    assertBefore(order, 'DASHBOARD_STYLE_PATH', 'CLIENT_PATH')
+    assertBefore(order, 'VOICE_PATH', 'WORDCARD_STYLE_PATH')
+    assertBefore(order, 'WORDCARD_STYLE_PATH', 'WORDCARD_CARD_PATH')
+    assertBefore(order, 'WORDCARD_CARD_PATH', 'CLIENT_PATH')
     assertBefore(order, 'CLIENT_PATH', 'ANNOTATE_PATH')
   })
 
@@ -119,8 +120,8 @@ describe('注入链（lib/index.js 静态契约）', () => {
     const expected = {
       CORE_PATH: 'core.js',
       VOICE_PATH: 'voice.js',
-      DASHBOARD_LOGIC_PATH: 'dashboard-logic.js',
-      DASHBOARD_STYLE_PATH: 'dashboard-style.js',
+      WORDCARD_STYLE_PATH: 'wordcard-style.js',
+      WORDCARD_CARD_PATH: 'wordcard-card.js',
       CLIENT_PATH: 'client.js',
       ANNOTATE_PATH: 'annotate.js',
     }

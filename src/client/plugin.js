@@ -68,6 +68,9 @@
  */
 
 import React from 'react'
+import LOGIC from './dashboard/logic.js'
+import { CSS as DASHBOARD_CSS } from './dashboard/styles.js'
+
 const h = React.createElement
 const { useCallback, useEffect, useMemo, useRef, useState } = React
 
@@ -77,13 +80,10 @@ const NS = 'dsh-word-learn'
 /** 侧栏入口与主面板共用的 id。两者必须一致，否则点了没反应。 */
 const PANEL_ID = 'word-learn'
 
-// 无 React 依赖的纯函数/常量来自注入的 dashboard-logic.js（注入顺序见 lib/index.js）。
-//
-// **不能做模块级快照**：DSH 的 client 入口是 immediately 的，可能先于我们动态插入的
-// 脚本执行；快照到 undefined 后即使脚本随后到达也没人重读 → 页面 undefined.map 崩掉
-// （2026-11-05 普通刷新事故）。这里每个函数都是「调用时才去读全局」的薄包装，
-// 常量在渲染时读；就绪前入口只渲染加载态。
-const assetOf = (name) => (window.__dwlDashboardLogic || {})[name]
+// 无 React 依赖的纯函数/常量现在是本 bundle 的模块（./dashboard/logic.js）。
+// 历史上它们是注入脚本、靠 window.__dwlDashboardLogic + 就绪轮询消费，
+// 阶段 2 起构建期就绑好了：不存在「晚到」，也就不需要加载态兜底。
+const assetOf = (name) => LOGIC[name]
 const bind =
   (name) =>
   (...args) =>
@@ -106,21 +106,6 @@ const tierLabelOf = bind('tierLabelOf')
 const quizRating = bind('quizRating')
 const writeRating = bind('writeRating')
 const hoverPlacement = bind('hoverPlacement')
-
-/** 注入脚本是否都到齐：逻辑与样式缺一不可（只到逻辑时样式还是空串）。 */
-const assetsReady = () => !!(window.__dwlDashboardLogic && window.__dwlDashboardCSS)
-
-/** 就绪时回调一次：事件 + 20×50ms 兜底轮询（事件可能早于监听注册）。返回取消函数。 */
-function whenAssetsReady(cb) {
-  if (assetsReady()) return (cb(), () => {})
-  let tries = 0
-  const fire = () => assetsReady() && (stop(), cb())
-  // 轮询有上限（20×50ms），但事件监听保留：慢网络下脚本晚到，事件仍能补上。
-  const timer = setInterval(() => (++tries >= 20 ? clearInterval(timer) : fire()), 50)
-  const stop = () => (clearInterval(timer), window.removeEventListener('dwl:assets-ready', fire))
-  window.addEventListener('dwl:assets-ready', fire)
-  return stop
-}
 
 // ---------------------------------------------------------------- 图标
 
@@ -323,7 +308,7 @@ function HoverWord({ word }) {
   const openTimer = useRef(null)
   const closeTimer = useRef(null)
 
-  /** 算固定坐标：几何在 dashboard-logic.js（hoverPlacement），这里只取视口尺寸。 */
+  /** 算固定坐标：几何在 ./dashboard/logic.js（hoverPlacement），这里只取视口尺寸。 */
   const place = useCallback(() => {
     const vw = (typeof window !== 'undefined' && window.innerWidth) || 1200
     const vh = (typeof window !== 'undefined' && window.innerHeight) || 800
@@ -1726,7 +1711,7 @@ function StudyView({
     onRate(2) // Hard
   }, [onRate])
 
-  /** 选择题结算：评级映射在 dashboard-logic.js（quizRating），这里只管延迟与回调。 */
+  /** 选择题结算：评级映射在 ./dashboard/logic.js（quizRating），这里只管延迟与回调。 */
   const handleQuizFinish = useCallback(
     (score) => {
       // 延迟一下让用户看到结果
@@ -1738,7 +1723,7 @@ function StudyView({
     [branch, onRate],
   )
 
-  /** 拼写结算：评级映射在 dashboard-logic.js（writeRating）。 */
+  /** 拼写结算：评级映射在 ./dashboard/logic.js（writeRating）。 */
   const handleWriteFinish = useCallback(
     (res) => {
       onRate(writeRating(branch, res.state))
@@ -2356,7 +2341,7 @@ function VocabView() {
   // 服务器没有搜索参数，所以这里是**已加载集合**内的过滤，界面上照实说
   const shown = useMemo(() => assetOf('filterLoadedItems')(items, keyword), [items, keyword])
 
-  // 档位缩写/全称在 dashboard-logic.js（tierBadgeOf / tierLabelOf）。
+  // 档位缩写/全称在 ./dashboard/logic.js（tierBadgeOf / tierLabelOf）。
 
   return h(
     'div',
@@ -2546,7 +2531,7 @@ function VocabView() {
 // ---------------------------------------------------------------- 数据视图
 
 function StatsView({ data }) {
-  // KPI / 14 天曲线 / 能力画像 / 作答分布的取数与算术全在 dashboard-logic.js。
+  // KPI / 14 天曲线 / 能力画像 / 作答分布的取数与算术全在 ./dashboard/logic.js。
   const { w, c, q, acc, started, tierParts, abMax, repair, dist } = assetOf('statsViewModel')(data)
 
   return h(
@@ -2788,7 +2773,7 @@ function SettingsView({ api }) {
     assetOf('saveAutoSpeak')(on)
   }, [])
 
-  // 下拉取数（选中下标 / 按 provider 分组）在 dashboard-logic.js；select 的 value
+  // 下拉取数（选中下标 / 按 provider 分组）在 ./dashboard/logic.js；select 的 value
   // 用下标而不是 "provider/model"：模型 id 里可能带斜杠，拼字符串再拆会选错。
   const { models, selection, currentIndex, groups } = useMemo(
     () => assetOf('modelCatalogView')(catalog),
@@ -2984,14 +2969,9 @@ function SettingsView({ api }) {
   )
 }
 
-// 入口先守就绪：注入脚本没到之前只渲染加载态，绝不带着 undefined 的逻辑去渲染
-// （那会崩掉宿主槽位，2026-11-05 普通刷新事故）。就绪后挂载真正的页面。
+// 入口：逻辑与样式都在 bundle 内，模块求值即就绪，不需要加载态。
 function WordLearnPage() {
-  const [ready, setReady] = useState(assetsReady)
-  useEffect(() => (ready ? undefined : whenAssetsReady(() => setReady(true))), [ready])
-  return ready
-    ? h(ReadyPage, null)
-    : h('div', { className: 'dwl-page' }, h('div', { className: 'dwl-mid' }, '正在加载…'))
+  return h(ReadyPage, null)
 }
 
 function ReadyPage() {
@@ -3464,11 +3444,9 @@ function apply(ctx) {
   ctx.effect(() => {
     const tag = document.createElement('style')
     tag.dataset.plugin = 'dsh-word-learn'
+    tag.textContent = DASHBOARD_CSS
     document.head.appendChild(tag)
-    // 普通刷新时注入脚本可能还没到：先挂空样式，就绪后补齐（事件 + 轮询兜底）。
-    const stop = whenAssetsReady(() => (tag.textContent = window.__dwlDashboardCSS || ''))
     return () => {
-      stop()
       try {
         tag.remove()
       } catch (err) {}
@@ -3480,6 +3458,9 @@ function apply(ctx) {
 // 为什么要有：测试过去按函数名切源码再 new Function，注释/解构一变就碎。
 // DSH 只读 inject/apply，多一个键不影响加载（见 tests/helpers/dashboard.mjs）。
 const __test__ = {
+  // 纯逻辑模块对象：组件测试要 spy 单个函数（如 saveAccent）时改它的属性，
+  // 与运行时读的是同一个对象。
+  LOGIC,
   HoverWord,
   WritePanel,
   SettingsView,

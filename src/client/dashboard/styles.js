@@ -1,19 +1,12 @@
-/* dsh-word-learn —— 学习页样式（dashboard-style.js）。
+/* dsh-word-learn —— 学习页样式（构建源码，ESM）。
  *
- * 为什么单独一个文件：CSS 是纯字符串常量，跟 React 组件混在 dashboard.js 里
- * 占了约 500 行，改组件时每次都要跨过整段样式。抽成注入脚本后 dashboard.js 只剩
- * 组件；dashboard.js 从 window.__dwlDashboardCSS 取字符串（取不到退化为空，不抛错）。
- * 注入顺序：core.js → voice.js → dashboard-logic.js → dashboard-style.js → client.js → annotate.js。
+ * 原来是注入脚本 assets/dashboard-style.js：dashboard.js 从 window.__dwlDashboardCSS 取字符串，
+ * 取不到先挂空样式再等事件 —— 同样是「禁止 import」催生的就绪协议。
+ * 现在它是 bundle 内的常量，apply() 时直接写进 <style>。
  *
- * 约束：浏览器普通 <script>（IIFE），不许 import/require/Node API；只挂一个字符串，
- * 不碰 DOM、不注册监听。**CSS 内容必须与拆分前逐字节一致**（对比脚本见任务报告），
- * 改样式时只改模板串内部，不要动缩进/换行。
+ * **CSS 内容与注入脚本逐字节一致**（只换外壳），改样式只动模板串内部。
  */
-;(function () {
-  'use strict'
-  if (window.__dwlDashboardCSS) return
-
-  const CSS = `
+export const CSS = `
 .dwl-page{
   --dwl-shadow:0 1px 2px rgba(24,24,20,.05),0 14px 30px -20px rgba(24,24,20,.42);
   --dwl-tint:rgba(17,17,17,.045);
@@ -528,8 +521,3 @@ body[data-ds-dark-theme] .dwl-modal{background:var(--dsw-alias-bg-layer-1,#24242
 .dwl-sense-row[data-status="right"] .gloss{color:var(--dsw-alias-state-success-primary)}
 .dwl-sense-row[data-status="wrong"] .gloss{color:var(--dsw-alias-state-error-primary)}
 `
-
-  window.__dwlDashboardCSS = CSS
-  // 通知可能先 apply 的 dashboard.js：样式已就绪（它自己还会兜底轮询）。
-  window.dispatchEvent(new CustomEvent('dwl:assets-ready'))
-})()

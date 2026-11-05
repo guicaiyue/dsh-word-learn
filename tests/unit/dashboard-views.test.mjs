@@ -1,7 +1,7 @@
 // 测什么：学习页两个「数据驱动」视图的渲染 —— StatsView（概览/曲线/分布）与
 // VocabView（词表/过滤/加载更多）。
 //
-// 为什么补这两块：拆 dashboard.js 时它们的取数与映射搬到了 dashboard-logic.js
+// 为什么补这两块：取数与映射在 src/client/dashboard/logic.js
 // （statsViewModel / repairKpis / answerDistribution / filterLoadedItems），
 // 但此前没有任何直接测试 —— 只有打开页面才看得到，写错一个字段名就是整块空白。
 // 这里按「给定 props/接口返回 → 具体文案、条数、柱高」断言，不做快照。

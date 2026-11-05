@@ -1,5 +1,5 @@
 /**
- * 把仓库里的两个「经典 script」装进 jsdom：
+ * 把构建产物 `dist/client.js` 装进 jsdom：
  *
  *  1. `dist/client.js` —— tsdown 产物，形如
  *       window.__ModuleLoader__.load({ id, factory: (require) => { ... } })
@@ -7,9 +7,9 @@
  *     import/export 会把后续脚本全部带崩），所以这里用 `new Function` 执行，
  *     只给它 `window` / `document` 两个形参。
  *
- *  2. `assets/dashboard-logic.js` —— 注入页面的纯逻辑 IIFE，往
- *     `window.__dwlDashboardLogic` 上挂纯函数/常量。bundle 里的组件通过
- *     `assetOf(name)` 在**渲染时**读它（故意不做模块级快照，见 plugin.js 的注释）。
+ * 学习页纯逻辑（档位、统计取数、口音偏好……）自阶段 2 起就在 bundle 内
+ * （`src/client/dashboard/logic.js`），通过 `__test__.LOGIC` 暴露给测试；
+ * 不再需要把注入脚本另装一份，也就不存在「晚到」竞态。
  *
  * 关于 `require`：factory 的形参就是宿主的模块表查询函数，不是全局 require。
  * 这里只把 `react` 映射到真实的 React（否则 hooks/dispatcher 对不上），其余 id
@@ -28,8 +28,6 @@ const REPO_ROOT = path.resolve(HERE, '..', '..')
 
 /** 构建产物位置。 */
 export const BUNDLE_PATH = path.join(REPO_ROOT, 'dist', 'client.js')
-/** 注入页面的纯逻辑资产。 */
-export const LOGIC_ASSET_PATH = path.join(REPO_ROOT, 'assets', 'dashboard-logic.js')
 
 /** 宿主 loader 登记的模块。 */
 export interface ModuleRegistration {
@@ -54,8 +52,6 @@ export interface TestExports {
 /** 被加载脚本会读写的那几个 window 字段。 */
 export interface DshWindow extends Window {
   __ModuleLoader__?: { load: (registration: ModuleRegistration) => void }
-  __dwlDashboardLogic?: Record<string, unknown>
-  __dwlDashboardCSS?: string
 }
 
 export interface LoadedBundle {
@@ -163,20 +159,15 @@ export function loadBundle(): LoadedBundle {
 }
 
 /**
- * 加载 assets/dashboard-logic.js，返回挂在 window 上的真实逻辑对象。
+ * 取 bundle 内的真实逻辑对象（`__test__.LOGIC`）。
  *
- * 组件通过 `assetOf()` 读全局，所以这里给的是**真的**纯逻辑（档位、统计取数、
- * 口音偏好读写……），不是手搓桩；需要断言副作用的个别函数由测试自己 spy。
+ * 给的是**真的**纯函数/常量（档位、统计取数、口音偏好读写……），不是手搓桩；
+ * 需要断言副作用的个别函数由测试自己 spy（同一个模块对象，改属性即改运行时行为）。
  */
-export function loadLogicAsset(win: DshWindow = jsdomWindow()): Record<string, unknown> {
-  const code = readScript(
-    LOGIC_ASSET_PATH,
-    'assets/dashboard-logic.js 丢了？它是指入脚本的纯逻辑资产。',
-  )
-  runClassicScript(code, win)
-  const logic = win.__dwlDashboardLogic
+export function loadLogic(bundle: LoadedBundle): Record<string, unknown> {
+  const logic = bundle.tests.LOGIC as Record<string, unknown> | undefined
   if (!logic) {
-    throw new Error('assets/dashboard-logic.js 执行后没有挂上 window.__dwlDashboardLogic。')
+    throw new Error('产物 __test__ 没有暴露 LOGIC：确认 plugin.js 把它放进 __test__ 并重新构建。')
   }
   return logic
 }

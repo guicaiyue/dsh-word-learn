@@ -388,14 +388,12 @@ const ORDER_NAMES = [
   'VOICE_PATH',
   'WORDCARD_STYLE_PATH',
   'WORDCARD_CARD_PATH',
-  'DASHBOARD_LOGIC_PATH',
-  'DASHBOARD_STYLE_PATH',
   'CLIENT_PATH',
   'ANNOTATE_PATH',
 ]
 const orderPos = ORDER_NAMES.map((name) => SCRIPT_PATHS_SRC.indexOf(name))
 check(
-  '注入顺序 core→voice→wordcard-style→wordcard-card→dashboard→client→annotate',
+  '注入顺序 core→voice→wordcard-style→wordcard-card→client→annotate',
   orderPos.every((v, i) => v >= 0 && (i === 0 || v > orderPos[i - 1])),
   true,
 )

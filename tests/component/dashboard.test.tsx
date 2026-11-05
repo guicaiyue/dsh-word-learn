@@ -1,5 +1,6 @@
 /**
- * 组件测试：**真实 bundle 产物 + 真实 dashboard-logic 资产**，用 jsdom + RTL 渲染。
+ * 组件测试：**真实 bundle 产物**，用 jsdom + RTL 渲染。
+ * （学习页逻辑/样式自阶段 2 起就在 bundle 内，不再有第二种「资产」形态。）
  *
  * 这组 case 要回答的问题是：拆掉 tests/helpers/dashboard.mjs 那套 320 行手搓
  * React 替身（假 hooks / 假 head / 假 setInterval / vm 整文件加载）之后，能不能
@@ -7,16 +8,14 @@
  * 方向成立；不能，就说明还缺哪块 shim。
  *
  * 取组件的方式是 `bundle.__test__`（`src/client/entry.ts` 从 plugin.js 转出），
- * 不 import src/** —— 测的是产物，不是源码。组件内部通过 `assetOf(name)` 在渲染
- * 时读 `window.__dwlDashboardLogic`，所以这里不手搓逻辑桩，而是把
- * `assets/dashboard-logic.js`（注入页面用的那份纯逻辑 IIFE）真的执行一遍。
- * 只有需要断言「调用发生了」的个别函数（saveAccent）用 spy 包一层。
+ * 不 import src/** —— 测的是产物，不是源码。纯逻辑通过 `__test__.LOGIC` 取真实对象，
+ * 只有需要断言「调用发生了」的个别函数（saveAccent）在它上面用 spy 包一层。
  */
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import type { RenderResult } from '@testing-library/react'
 import type { ComponentType } from 'react'
-import { loadBundle, loadLogicAsset, type LoadedBundle } from '../support/load-bundle'
+import { loadBundle, loadLogic, type LoadedBundle } from '../support/load-bundle'
 
 /** 宿主 /models 的返回形状（SettingsView 的目录来源）。 */
 const CATALOG = {
@@ -80,7 +79,7 @@ let realSaveAccent: unknown
 
 beforeAll(() => {
   bundle = loadBundle()
-  logic = loadLogicAsset(bundle.window)
+  logic = loadLogic(bundle)
   realSaveAccent = logic.saveAccent
 })
 
@@ -121,6 +120,69 @@ describe('dist/client.js 产物契约（测试入口）', () => {
     expect(editDistance('kitten', 'sitting')).toBe(3)
     expect(spellCheck('Receive', 'receive').state).toBe('exact')
     expect(spellCheck('accomodate', 'accommodate').state).toBe('close')
+  })
+})
+
+describe('apply：bundle 自足（阶段 2：逻辑/样式不再靠注入脚本）', () => {
+  interface FakeCtx {
+    effect: (fn: () => (() => void) | void, label?: string) => () => void
+    locale: { register: () => () => void; bind: () => (key: string) => string }
+    slots: { inject: (name: string, fn: () => void) => void; register: () => () => void }
+    disposers: Array<() => void>
+  }
+
+  function makeCtx(): FakeCtx {
+    const disposers: Array<() => void> = []
+    return {
+      disposers,
+      effect: (fn) => {
+        const dispose = fn()
+        if (typeof dispose === 'function') disposers.push(dispose)
+        return () => {}
+      },
+      locale: { register: () => () => {}, bind: () => (key: string) => key },
+      slots: { inject: (_name, fn) => fn(), register: () => () => {} },
+    }
+  }
+
+  it('apply 后样式由 bundle 自己写进 <style>，不依赖 window.__dwlDashboard*', () => {
+    const win = bundle.window as unknown as Record<string, unknown>
+    const ctx = makeCtx()
+    const dispose = bundle.apply(ctx) as (() => void) | undefined
+
+    // 注入脚本那套全局约定必须已经不存在：产物自足，晚到/不到都不影响。
+    expect(win.__dwlDashboardLogic).toBeUndefined()
+    expect(win.__dwlDashboardCSS).toBeUndefined()
+
+    const tag = win.document.querySelector<HTMLStyleElement>('style[data-plugin="dsh-word-learn"]')
+    expect(tag, 'apply 应写入一个 style[data-plugin="dsh-word-learn"]').not.toBeNull()
+    const css = tag!.textContent || ''
+    expect(css.length).toBeGreaterThan(10_000)
+    // 关键选择器在，且是真的 CSS 而不是空壳（历史上就是空串导致整页没样式）。
+    expect(css).toContain('.dwl-page{')
+    expect(css).toContain('.dwl-mid')
+
+    // 卸载：effect 的清理函数必须把样式摘掉（重复 apply 才不会堆叠）。
+    for (const fn of ctx.disposers) fn()
+    if (typeof dispose === 'function') dispose()
+    expect(win.document.querySelector('style[data-plugin="dsh-word-learn"]')).toBeNull()
+  })
+
+  it('style 内容与上一版注入脚本逐字节一致（改样式只该动模板串内部）', () => {
+    const ctx = makeCtx()
+    bundle.apply(ctx)
+    const tag = bundle.window.document.querySelector<HTMLStyleElement>(
+      'style[data-plugin="dsh-word-learn"]',
+    )
+    const css = tag!.textContent || ''
+    // 首尾各抽一段：CSS 开头是变量声明块，结尾是深色主题覆盖。
+    // CSS 以换行 + `.dwl-page{` 开头（与注入脚本逐字节一致）
+    expect(css.charCodeAt(0)).toBe(10)
+    expect(css.slice(1, 10)).toBe('.dwl-page')
+    expect(css.trimEnd().endsWith('}')).toBe(true)
+    expect(css).toContain('--dwl-shadow:0 1px 2px rgba(24,24,20,.05)')
+    expect(css).not.toContain('${')
+    for (const fn of ctx.disposers) fn()
   })
 })
 

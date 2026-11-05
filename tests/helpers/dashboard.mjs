@@ -17,10 +17,6 @@ import path from 'node:path'
 import vm from 'node:vm'
 
 const DASHBOARD = path.join(import.meta.dirname, '..', '..', 'dist', 'client.js')
-// dashboard.js 消费的两个注入脚本（生产环境由 lib/index.js 按同样顺序注入）：
-// 纯逻辑与 CSS 先加载，dashboard.js 的 factory 再从这里取 window.__dwlDashboard*。
-const LOGIC = path.join(import.meta.dirname, '..', '..', 'assets', 'dashboard-logic.js')
-const STYLE = path.join(import.meta.dirname, '..', '..', 'assets', 'dashboard-style.js')
 
 /** 极简 React：createElement + 5 个 hooks，足够渲染这些无副作用组件。 */
 export function createReactRuntime() {
@@ -199,11 +195,7 @@ export function textOf(node) {
  */
 export function loadDashboard(options = {}) {
   const code = fs.readFileSync(DASHBOARD, 'utf8')
-  const logicCode = fs.readFileSync(LOGIC, 'utf8')
-  const styleCode = fs.readFileSync(STYLE, 'utf8')
   const { React, mount } = createReactRuntime()
-  // 最小事件总线：注入脚本（logic/style）就绪后 dispatch dwl:assets-ready，
-  // dashboard.js 侧要能收到并补渲染 —— 普通刷新竞态就靠它恢复。
   const listeners = new Map()
   const win = {
     innerWidth: 1200,
@@ -287,13 +279,6 @@ export function loadDashboard(options = {}) {
     },
   }
   vm.createContext(sandbox)
-  // 先注入纯逻辑/样式（与生产的注入顺序一致），再加载 dashboard.js 本体。
-  // deferAssets: 模拟「DSH 自己的 client 入口先 apply、我们的注入脚本后到」的
-  // 普通刷新竞态 —— 由测试稍后手动 injectAssets() 补上。
-  if (!options.deferAssets) {
-    vm.runInContext(logicCode, sandbox, { filename: 'assets/dashboard-logic.js' })
-    vm.runInContext(styleCode, sandbox, { filename: 'assets/dashboard-style.js' })
-  }
   vm.runInContext(code, sandbox, { filename: 'dist/client.js' })
   const def = sandbox.__module
   if (!def || typeof def.factory !== 'function') {
@@ -307,18 +292,8 @@ export function loadDashboard(options = {}) {
     throw new Error('dashboard.js 缺少 __test__ 导出（单测入口）')
   }
   // 挂上运行时与源码：组件测试要 mount，源码级断言（不许 new Audio 等）要原文。
-  // __source__ 拼上逻辑/样式两段注入脚本：它们与 dashboard.js 一起构成页面侧客户端，
-  // 源码级约束（发音走 __dwlVoice 等）应按整个客户端算，不是只看 dashboard.js。
   mod.__helpers__ = { mount, React }
-  if (options.deferAssets) {
-    // 竞态测试入口：先让 dashboard.js 的工厂/apply 跑起来，再注入全局并靠事件恢复。
-    mod.__helpers__.injectAssets = () => {
-      vm.runInContext(logicCode, sandbox, { filename: 'assets/dashboard-logic.js' })
-      vm.runInContext(styleCode, sandbox, { filename: 'assets/dashboard-style.js' })
-    }
-    mod.__helpers__.window = win
-    mod.__helpers__.document = sandbox.document
-  }
-  mod.__source__ = code + '\n' + logicCode + '\n' + styleCode
+  // __source__：整份产物源码（学习页逻辑/样式已并入 bundle，源码级约束照旧可查）。
+  mod.__source__ = code
   return mod
 }
