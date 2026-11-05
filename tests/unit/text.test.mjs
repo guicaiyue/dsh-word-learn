@@ -14,7 +14,7 @@ import {
   pickBest,
   splitWords,
   stripCode,
-} from '../../lib/text.js'
+} from '../../lib/host/text.js'
 
 describe('stripCode', () => {
   test('围栏代码块与行内代码整段挖掉', () => {

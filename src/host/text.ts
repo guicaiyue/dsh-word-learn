@@ -13,6 +13,17 @@
 /** 单词的最小长度。低于这个长度的英文片段（a, an, of, to, in）不值得建卡。 */
 export const MIN_WORD_LEN = 2
 
+/** 划词判定结果：empty / 单个词 / 短语 / 其它（含中文等）。 */
+export type SelectionKind = 'empty' | 'word' | 'phrase' | 'other'
+
+export interface Selection {
+  kind: SelectionKind
+  /** kind === 'word' 时的归一化单词。 */
+  word: string
+  /** 选区里拆出来的候选词（去重、保序）。 */
+  words: string[]
+}
+
 /**
  * 把"代码片段"从文本里挖掉，返回剩下的自然语言部分。
  *
@@ -26,7 +37,7 @@ export const MIN_WORD_LEN = 2
  *   - 下划线/点号连接的标识符  config_path、obj.method
  *   - 版本号                   3.12、v24.13.0
  */
-export function stripCode(text) {
+export function stripCode(text: string): string {
   let out = String(text || '')
   out = out.replace(/```[\s\S]*?```/g, ' ') // 围栏代码块（最大，先处理）
   out = out.replace(/`[^`]*`/g, ' ') // 行内代码
@@ -47,7 +58,7 @@ export function stripCode(text) {
  *   - 文件路径与域名        src/lib/index.js、api.example.com
  *   - 单个字母             a、I
  */
-export function looksLikeWord(token) {
+export function looksLikeWord(token: string): boolean {
   if (!token) return false
   const word = String(token).trim()
   if (word.length < MIN_WORD_LEN || word.length > 32) return false
@@ -68,7 +79,7 @@ export function looksLikeWord(token) {
 }
 
 /** 归一化一个词：去首尾标点、小写、统一撇号、去所有格。 */
-export function normalizeWord(token) {
+export function normalizeWord(token: string): string {
   let word = String(token || '').trim()
   // 统一各种撇号字符（模型输出里 ' 和 ' 都会出现）
   word = word.replace(/[\u2018\u2019\u02BC]/g, "'")
@@ -86,12 +97,12 @@ export function normalizeWord(token) {
  * 从一段文本里拆出候选单词（去重、保持出现顺序）。
  * `limit` 防止把一整段回答拆出几百个词。
  */
-export function splitWords(text, limit = 60) {
+export function splitWords(text: string, limit = 60): string[] {
   // 先挖掉代码，否则 src/lib/index.js 会变成 src/lib/index/js 四个假词
   const raw = stripCode(text)
   const tokens = raw.match(/[A-Za-z][A-Za-z'’-]*/g) || []
-  const seen = new Set()
-  const out = []
+  const seen = new Set<string>()
+  const out: string[] = []
   for (const token of tokens) {
     if (!looksLikeWord(token)) continue
     const word = normalizeWord(token)
@@ -110,7 +121,7 @@ export function splitWords(text, limit = 60) {
  * 这样 `latent`、`(latent)`、`"latent,"` 都算单词，
  * 而 `latent space`、`the latent` 算短语。
  */
-export function classifySelection(text) {
+export function classifySelection(text: string): Selection {
   const raw = String(text || '').trim()
   if (!raw) return { kind: 'empty', word: '', words: [] }
 
@@ -140,7 +151,7 @@ export function classifySelection(text) {
  * **其中一个不认识的词**，而那个词往往比周围的虚词更长。
  * 这是启发式，前端会把候选全列出来让用户自己选。
  */
-export function pickBest(words) {
+export function pickBest(words: readonly string[]): string {
   if (!Array.isArray(words) || !words.length) return ''
   return words.reduce((best, w) => (w.length > best.length ? w : best), '')
 }

@@ -36,23 +36,24 @@
     "node": ">=22.5.0"
   },
   "scripts": {
-    "build": "tsdown",
+    "build": "tsdown && tsc -p tsconfig.host.json",
     "dev": "tsdown --watch",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.host.json --noEmit",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "deps:check": "depcruise -C --config .dependency-cruiser.cjs lib src",
     "test:unit": "node --test \"tests/**/*.test.mjs\"",
-    "test:unit:coverage": "node --experimental-test-coverage --test-coverage-include=lib/http.mjs --test-coverage-include=lib/text.js --test-coverage-include=lib/models.mjs --test-coverage-lines=95 --test-coverage-branches=85 --test-coverage-functions=95 --test \"tests/**/*.test.mjs\"",
+    "test:unit:coverage": "node --experimental-test-coverage --test-coverage-include=lib/http.mjs --test-coverage-include=lib/host/text.js --test-coverage-include=lib/models.mjs --test-coverage-lines=95 --test-coverage-branches=85 --test-coverage-functions=95 --test \"tests/**/*.test.mjs\"",
     "test:component": "vitest run",
     "test:legacy": "node scripts/test-all.mjs",
     "test": "pnpm test:unit && pnpm test:unit:coverage && pnpm test:component && pnpm test:legacy",
     "check:cycles": "node scripts/check-cycles.mjs",
     "artifact:check": "node scripts/check-artifact.mjs",
     "check": "pnpm typecheck && pnpm lint && pnpm format:check && pnpm deps:check && pnpm check:cycles",
-    "verify": "pnpm build && pnpm artifact:check && pnpm check && pnpm test"
+    "verify": "pnpm build && pnpm artifact:check && pnpm check && pnpm test",
+    "build:host": "tsc -p tsconfig.host.json"
   },
   "dsh": {
     "bundle": {
