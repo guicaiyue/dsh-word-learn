@@ -93,7 +93,8 @@ pnpm format        # 再统一排版
 3. **只改必要的**：不顺手重构无关代码，不批量改注释格式，不重排 import。
 4. **改完自检**：`pnpm lint:fix && pnpm format && pnpm verify`。
 5. **说清生效方式**：前端全部在 `src/client/**` —— 改完 `pnpm build`（或 `pnpm dev` 常驻）重建
-   `dist/client.js`，平台 client-hmr 会自动重载模块（不用刷新、不用重启）；`lib/**/*.mjs` 重挂插件即可。
+   `dist/client.js`，平台 client-hmr 会拉新产物并重挂模块（**不用刷新、不用重启**）；但重挂会重建插件的
+   面板，当前打开的学习页会退回首页，重新点侧栏「英语学习」即可看到新代码。`lib/**/*.mjs` 重挂插件即可。
    改完前端要告诉人"怎么看到效果"。
 
 ## 5. 交付说明必须包含
