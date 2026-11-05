@@ -41,9 +41,11 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "test:unit": "node --test",
+    "test:unit:coverage": "node --experimental-test-coverage --test-coverage-include=lib/http.mjs --test-coverage-include=lib/text.js --test-coverage-include=lib/models.mjs --test-coverage-lines=95 --test-coverage-branches=85 --test-coverage-functions=95 --test \"tests/**/*.test.mjs\"",
     "test:legacy": "node scripts/test-all.mjs",
-    "test": "pnpm test:unit && pnpm test:legacy",
-    "check": "pnpm lint && pnpm format:check",
+    "test": "pnpm test:unit && pnpm test:unit:coverage && pnpm test:legacy",
+    "check:cycles": "node scripts/check-cycles.mjs",
+    "check": "pnpm lint && pnpm format:check && pnpm check:cycles",
     "verify": "pnpm check && pnpm test"
   },
   "dsh": {

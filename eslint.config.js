@@ -10,7 +10,8 @@ import globals from 'globals'
  * 三条硬边界靠配置守，不靠记忆：
  *   1. assets/ 是注入页面的普通脚本（IIFE），不许 ESM、不许 import、不许 Node API；
  *   2. lib/ 是宿主侧 ESM，不许 import assets/（反过来 assets 也不许 import lib/）；
- *   3. 每个文件有代码行预算，新文件默认 400 行，超了应当拆模块，而不是把预算往上调。
+ *   3. 每个文件有代码行预算，新文件默认 400 行，超了应当拆模块，而不是把预算往上调；
+ *   4. 模块之间不许出现 import 环：由 scripts/check-cycles.mjs 在 check 阶段守着（ESLint 10 下没有可靠的环检测插件）。
  *
  * 新增依赖前先读 CONVENTIONS.md「依赖」一节：本插件刻意保持零构建。
  */

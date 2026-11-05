@@ -149,16 +149,20 @@ pnpm lint          # eslint .
 pnpm lint:fix
 pnpm format        # prettier --write .
 pnpm format:check
-pnpm check         # lint + format:check
+pnpm check         # lint + format:check + 环检测
+pnpm check:cycles  # lib/ 内部 import 环检测（有环 exit 1）
 
 # 单元测试（tests/，node:test）
 pnpm test:unit
+
+# 单测 + 覆盖率门槛（http/text/models）
+pnpm test:unit:coverage
 
 # 回归脚本（scripts/test-all.mjs 收编 scripts/test-*.mjs）
 pnpm test:legacy
 
 # 全部
-pnpm test          # test:unit + test:legacy
+pnpm test          # test:unit + test:unit:coverage + test:legacy
 pnpm verify        # check + test，交付前唯一验收
 ```
 

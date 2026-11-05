@@ -180,7 +180,19 @@ const limit = intParam(url, 'limit', { fallback: 200, min: 1, max: 500, floor: t
    业务模块只接收依赖，测试传假对象即可。
 4. 拆完按需加进 `CODE_BUDGET`，并同步 §4.1 的表。
 
-### 4.4 不许做的
+### 4.4 不许有 import 环
+
+`lib/` 之间、以及 `tests/`/`scripts/` 对 `lib/` 的引用，都不许成环。环会让「谁依赖谁」失去方向：
+拆模块时绕一圈又拆回去，改 A 会莫名影响 B，单测也不得不整包跑。
+
+- 门禁：`pnpm check:cycles`（`scripts/check-cycles.mjs`，遍历静态 `import` 与动态 `import()`，
+  打印完整环路径并 exit 1），已挂进 `pnpm check` → `pnpm verify`；
+- 为什么不用 ESLint 插件：ESLint 10 下 `eslint-plugin-import-x` 4.17.1 的 `no-cycle` 实测对
+  故意造出的 `a.mjs ↔ b.mjs` 环不报错（resolver-next / 旧 node resolver 都试过），已移除；
+- 检测器自身有单测（`tests/unit/cycles.test.mjs`：正例、菱形误报、多环、动态 import），
+  保证门禁不是摆设。
+
+### 4.5 不许做的
 
 - **调大 `CODE_BUDGET` 让 lint 变绿**——本项目唯一明令禁止的"修复"。
 - 把逻辑挪进 `assets/` 另一个文件规避预算（预算对所有文件生效）。
@@ -364,13 +376,17 @@ const limit = intParam(url, 'limit', { fallback: 200, min: 1, max: 500, floor: t
 
 ### 9.1 三个入口
 
-| 命令               | 跑什么                                                   | 何时跑               |
-| ------------------ | -------------------------------------------------------- | -------------------- |
-| `pnpm test:unit`   | `node --test tests/`                                     | 改完逻辑             |
-| `pnpm test:legacy` | `node scripts/test-all.mjs`（收编 `scripts/test-*.mjs`） | 改路由/前端判定/排期 |
-| `pnpm verify`      | `check`（lint + format:check）+ 上面两个                 | **交付前唯一验收**   |
+| 命令                      | 跑什么                                                   | 何时跑               |
+| ------------------------- | -------------------------------------------------------- | -------------------- |
+| `pnpm test:unit`          | `node --test "tests/**/*.test.mjs"`                      | 改完逻辑             |
+| `pnpm test:unit:coverage` | 单测 + 覆盖率门槛（http/text/models）                    | 改纯函数或模型层     |
+| `pnpm test:legacy`        | `node scripts/test-all.mjs`（收编 `scripts/test-*.mjs`） | 改路由/前端判定/排期 |
+| `pnpm check:cycles`       | `scripts/check-cycles.mjs`（lib/ import 环）             | 拆/并模块后          |
+| `pnpm verify`             | `check`（lint + format:check + 环检测）+ 上面三个        | **交付前唯一验收**   |
 
 `tests/` 放 `node:test` 单测（`*.test.mjs`），覆盖纯函数与模块契约；
+覆盖率只给已经有单测的三个模块设门槛（`lib/http.mjs`、`lib/text.js`、`lib/models.mjs`，
+行 95% / 分支 85% / 函数 95%）：先把门槛钉在达标处，改坏了会红；没单测的模块不设假门槛。
 `scripts/test-*.mjs` 是历史端到端脚本，可单跑，但必须登记进 `scripts/test-all.mjs`，
 否则 CI 只跑一半。顺序：单跑通过 → 注册进 `test-all.mjs` → `pnpm verify`。
 
