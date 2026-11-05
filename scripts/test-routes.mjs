@@ -24,6 +24,8 @@ if (!allowRealDb) {
 }
 
 const routes = {}
+// 路由定义（含 methods 白名单）：断言「写路由必须 POST-only」要用
+const routeDefs = []
 const taps = []
 const injects = []
 
@@ -33,6 +35,7 @@ const fakeCtx = {
   webServer: {
     register: (r) => {
       routes[r.path] = r.handler
+      routeDefs.push(r)
       return () => {}
     },
     tapIndex: (fn) => {
@@ -584,6 +587,53 @@ check('offset=-5 被夹到 0', typeof r.json.total === 'number')
 console.log('\n=== task-6：/stats 路由已删 ===')
 check('/stats 已注销', routes['/dsh-word-learn/stats'] === undefined)
 
+console.log('\n=== 路由方法白名单（写操作不许 GET 触发） ===')
+// 为什么必须断言：registerRoute 不声明 methods 时等于「任何方法都放行」，
+// 写操作就能被 GET 触发（浏览器地址栏、图片标签、跨站表单都可能打进来）。
+// 断言策略：①每条已注册路由对 DELETE 都必须回 405（证明声明了白名单）；
+// ②写路由用 GET 打必须 405、用 POST 打不能被 405；只读路由反过来。
+const WRITE_ROUTES = [
+  '/dsh-word-learn/save',
+  '/dsh-word-learn/update',
+  '/dsh-word-learn/remove',
+  '/dsh-word-learn/grade',
+  '/dsh-word-learn/enrich-ai',
+  '/dsh-word-learn/repair/log',
+  '/dsh-word-learn/repair/clear',
+  '/dsh-word-learn/model',
+]
+const READ_ONLY_ROUTES = [
+  '/dsh-word-learn/list',
+  '/dsh-word-learn/queue',
+  '/dsh-word-learn/dashboard',
+  '/dsh-word-learn/repair/stats',
+  '/dsh-word-learn/models',
+]
+checkEq('注册的路由条数', routeDefs.length, Object.keys(routes).length)
+for (const def of routeDefs) {
+  r = await call(def.path, { method: 'DELETE', url: def.path })
+  checkEq(`DELETE ${def.path} -> 405`, r.code, 405)
+  check(
+    `${def.path} 405 带 Allow 头`,
+    /GET|POST/.test(String(r.headers.Allow || '')),
+    r.headers.Allow,
+  )
+  checkEq(`${def.path} 405 只发一次`, r.ends, 1)
+}
+for (const p of WRITE_ROUTES) {
+  r = await call(p, { method: 'GET', url: p })
+  checkEq(`${p} GET -> 405`, r.code, 405)
+  checkEq(`${p} 405 code`, r.json.code, 'METHOD_NOT_ALLOWED')
+  check(`${p} 405 带 Allow: POST`, /POST/.test(String(r.headers.Allow || '')), r.headers.Allow)
+  r = await call(p, { method: 'POST', url: p, body: JSON.stringify({}) })
+  check(`${p} POST 不被 405 拦`, r.code !== 405, r.code)
+}
+for (const p of READ_ONLY_ROUTES) {
+  r = await call(p, { method: 'POST', url: p, body: JSON.stringify({}) })
+  checkEq(`${p} POST -> 405`, r.code, 405)
+  r = await call(p, { method: 'GET', url: p })
+  check(`${p} GET 不被 405 拦`, r.code !== 405, r.code)
+}
 console.log('\n=== task-6：500 响应不含绝对路径 ===')
 const { Store } = await import('../lib/store.mjs')
 
