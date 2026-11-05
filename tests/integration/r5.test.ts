@@ -426,6 +426,14 @@ afterAll(() => {
   temp.cleanup()
 })
 
+describe('模块导出', () => {
+  it('buildRecap / submitRecap / senseMap 都是函数', () => {
+    eq(typeof r5.buildRecap, 'function', 'buildRecap 应该是函数')
+    eq(typeof r5.submitRecap, 'function', 'submitRecap 应该是函数')
+    eq(typeof r5.senseMap, 'function', 'senseMap 应该是函数')
+  })
+})
+
 describe('buildRecap', () => {
   it('7 个候选全部出题，同义/异义配额 4/3，一个词只出一道', () => {
     const recap7 = r5.buildRecap(store, { limit: 10 })
