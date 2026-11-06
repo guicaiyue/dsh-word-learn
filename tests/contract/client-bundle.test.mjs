@@ -1,3 +1,4 @@
+// @vitest-environment node
 // 产物契约测试 —— 保证 dist/client.js 真的满足 DSH 客户端加载契约。
 //
 // 为什么不在这里重写一遍检查逻辑：断言只在 scripts/check-artifact.mjs 里维护一份
@@ -9,7 +10,7 @@
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import path from 'node:path'
-import test from 'node:test'
+import { test } from 'vitest'
 
 import {
   BUNDLE_PATH,

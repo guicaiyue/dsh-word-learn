@@ -1,3 +1,4 @@
+// @vitest-environment node
 // 测什么：src/client/features/voice.js（原注入脚本 assets/voice.js）—— 发音协议与稳健性。
 //
 // 迁移来源：scripts/test-voice.mjs + scripts/test-voice-fixture/cases.js 里的那批
@@ -9,7 +10,7 @@
 // 为什么不在 node 里跑真音色：node 没有 speechSynthesis，真机音色也因系统而异；
 // 这里只验证协议与稳健性（音色选择、降级、watchdog、并发、分句、持久化）。
 // 所有用例都通过 __setSynth 注入假 synth，**不依赖真实音色**，所以结果确定。
-import { test } from 'node:test'
+import { test } from 'vitest'
 import assert from 'node:assert/strict'
 
 import VOICE, {

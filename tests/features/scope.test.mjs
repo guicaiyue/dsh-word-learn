@@ -1,3 +1,4 @@
+// @vitest-environment node
 // 测什么：标注层「生效范围 / 排除范围」的单一来源 —— core.js 的范围判定与共同排除名单、
 // annotate 模块如何消费这份名单，以及标注自己的白名单根 / 块类型 / 黑名单边界。
 //
@@ -8,7 +9,7 @@
 // 迁移自 scripts/test-scope.mjs 的「锚点 / 应当生效 / 不应生效 / 划词排除范围 /
 // 排除范围单一来源 / 标注层与划词共用同一份排除名单」几段。voice、wordcard、注入顺序
 // 属于别的模块或别的迁移任务（注入顺序已由 bundle 的 import 图取代），不在本文件。
-import { describe, test } from 'node:test'
+import { describe, test } from 'vitest'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import path from 'node:path'

@@ -1,9 +1,10 @@
+// @vitest-environment node
 // 测什么：lib/text.js 的划词判定纯函数（stripCode / looksLikeWord / normalizeWord /
 // splitWords / classifySelection / pickBest）。
 // 为什么放单测：这些是规则密集的纯函数，一个正则改动就能让"代码当单词收进生词本"；
 // legacy 的 test-routes 只覆盖了少数几个真实词，边界（中文、URL、版本号、驼峰）在这里更便宜。
 
-import { describe, test } from 'node:test'
+import { describe, test } from 'vitest'
 import assert from 'node:assert/strict'
 import {
   MIN_LEN,

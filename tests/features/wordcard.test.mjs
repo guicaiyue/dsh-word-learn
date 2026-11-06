@@ -1,3 +1,4 @@
+// @vitest-environment node
 // 测什么：src/client/features/wordcard/**（原注入脚本 assets/wordcard.js +
 // wordcard-card.js + wordcard-style.js）—— 安装/卸载生命周期、划词判定、卡片内容。
 //
@@ -12,7 +13,7 @@
 //
 // 边界：不联网（fetch 全 stub）、不碰用户库、不起宿主；语音模块由 core.js 的
 // voiceModule() 从 window 找（阶段 2 收尾改成 import），这里不依赖它可用。
-import { test } from 'node:test'
+import { test } from 'vitest'
 import assert from 'node:assert/strict'
 
 // 先 import 再建假 DOM：模块顶层零副作用，import 期不该碰 document / window。

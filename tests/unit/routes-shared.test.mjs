@@ -1,3 +1,4 @@
+// @vitest-environment node
 // 测什么：clampInt —— 写操作请求体里的数字字段钳制口。
 //
 // 归口：实现在 `lib/http.mjs`（与 intParam 同一模块），`lib/routes/shared.mjs` 只再导出；
@@ -11,7 +12,7 @@
 // 不涉及 I/O、ctx、用户库：http.mjs / shared.mjs 都是纯函数模块，import 无副作用。
 
 import { readFileSync } from 'node:fs'
-import { describe, test } from 'node:test'
+import { describe, test } from 'vitest'
 import assert from 'node:assert/strict'
 
 import { clampInt as clampIntFromHttp } from '../../lib/host/http.js'

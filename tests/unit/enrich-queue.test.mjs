@@ -1,3 +1,4 @@
+// @vitest-environment node
 // 测什么：lib/enrich/queue.mjs 的「dispose 之后还能重新武装」。
 //
 // 为什么必须有这条回归：队列是模块级单例状态。插件热重挂（不重启 dsh）时
@@ -7,7 +8,7 @@
 //
 // 约束（CONVENTIONS §9.2）：模型调用全部 stub（假 ctx.llm，不发真网络）；
 // 在任何 lib/* import 之前把 DSH_HOME 指向 mkdtemp 出的临时目录，绝不碰真实用户库。
-import { after, describe, test } from 'node:test'
+import { afterAll, describe, test } from 'vitest'
 import assert from 'node:assert/strict'
 
 import { useTempHome } from '../helpers/tmp-home.mjs'
@@ -16,7 +17,7 @@ import { useTempHome } from '../helpers/tmp-home.mjs'
 const tmp = useTempHome('dwl-queue-unit-')
 const { disposeQueues, enqueueAnalysis, enqueueSenseAnalysis } =
   await import('../../lib/host/enrich/queue.js')
-after(() => tmp.cleanup())
+afterAll(() => tmp.cleanup())
 
 /** 等 predicate 成立，超时给可读失败信息（而不是让测试静默挂住）。 */
 async function waitFor(predicate, message, timeoutMs = 3000) {

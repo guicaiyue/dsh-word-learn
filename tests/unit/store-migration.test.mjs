@@ -1,3 +1,4 @@
+// @vitest-environment node
 // 老库（P1 时代）能不能打开 —— 索引必须在 migrate 之后建。
 //
 // 这条回归守的是一次真实故障风险：SCHEMA 里 CREATE INDEX idx_words_tier ON words(freq_tier)
@@ -14,7 +15,7 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import test from 'node:test'
+import { test } from 'vitest'
 
 import { DatabaseSync } from 'node:sqlite'
 

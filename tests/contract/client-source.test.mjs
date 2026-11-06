@@ -1,3 +1,4 @@
+// @vitest-environment node
 // 产物源码级契约 —— 发音链路只许走浏览器自带 speechSynthesis，不许再回到服务端音频。
 //
 // 迁移自 `scripts/test-hoverword.mjs` 末尾的四条源码断言（原来靠 vm 加载 bundle 后
@@ -14,7 +15,7 @@
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import path from 'node:path'
-import test from 'node:test'
+import { test } from 'vitest'
 
 import { BUNDLE_PATH, ROOT } from '../../scripts/check-artifact.mjs'
 

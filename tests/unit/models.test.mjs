@@ -1,10 +1,11 @@
+// @vitest-environment node
 // 测什么：lib/models.mjs 的模型目录挑选与回退（目录过滤、默认第一个、自选命中/失效、
 // 目录不可用时退回会话默认、设置读写）。
 // 为什么放单测：这是纯取舍逻辑，用假 ctx + 假 store 就能把每条分支钉住；
 // legacy 的 test-ai-model.mjs 同时验了 analyzeWord，这里只聚焦"选哪个模型"，
 // 并用真实 Store 验一次设置确实落盘（临时 DSH_HOME，不碰真实用户库）。
 
-import { after, describe, test } from 'node:test'
+import { afterAll, describe, test } from 'vitest'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -22,7 +23,7 @@ import { openTempStore, useTempHome } from '../helpers/tmp-home.mjs'
 // DSH_HOME 必须在 import store 之前设好；helper 只造目录，store 由 openTempStore 动态 import。
 const tmp = useTempHome('dwl-models-unit-')
 const store = await openTempStore()
-after(() => {
+afterAll(() => {
   store.close()
   tmp.cleanup()
 })

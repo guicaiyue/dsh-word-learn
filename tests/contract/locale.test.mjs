@@ -1,10 +1,11 @@
+// @vitest-environment node
 // locale 契约测试 —— 中英两份文案的键集合必须完全相同，且没有空字符串。
 //
 // 为什么值得单列：locale 缺键不会报错，只会在英文界面里显示原始 key（`panel.title`）
 // 或空白，属于「构建全绿、界面丢字」的静默故障。这里把两份 JSON 深度展平后逐键比对，
 // 并且用合成样本证明检查器会红。
 import assert from 'node:assert/strict'
-import test from 'node:test'
+import { test } from 'vitest'
 
 import { checkLocale, flattenLocale } from '../../scripts/check-artifact.mjs'
 

@@ -1,3 +1,4 @@
+// @vitest-environment node
 // 测什么：标注层的纯文本规则（tokenize / 词形还原 / 命中判定 / 句界 / 指纹）与
 // 「在学词表」契约（lib/annotate.mjs）—— 从 scripts/test-annotate.mjs 第 1、2 部分迁移。
 //
@@ -8,7 +9,7 @@
 //
 // 边界：不碰 DOM、不联网。真实浏览器端到端（bsk + fixture：排除范围/流式/折叠/限额/
 // 开关）仍留在 scripts/test-annotate.mjs —— 那条路径 node --test 跑不了。
-import { describe, test } from 'node:test'
+import { describe, test } from 'vitest'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import { createRequire } from 'node:module'
@@ -350,7 +351,9 @@ describe('annotateWordList：在学词表契约（临时 DSH_HOME）', () => {
 // IntersectionObserver，模块会自动退到 rect 兜底（正是后台标签页那条路径），
 // 所以断言结果与浏览器一致。
 describe('DOM 冒烟（jsdom）：install 装上、dispose 拆干净', () => {
-  test('首次扫描 / 排除范围 / 开关 / 卸载 / 重装走一遍', async () => {
+  // 超时给足：这条用例自己造一个 JSDOM 窗口并等几轮 rAF/防抖，vitest 默认 5s 会误杀
+  // （node:test 时代没有超时，迁移到 vitest 时补上，语义不变）。
+  test('首次扫描 / 排除范围 / 开关 / 卸载 / 重装走一遍', { timeout: 30000 }, async () => {
     const require = createRequire(import.meta.url)
     const { JSDOM } = require('jsdom')
     const dom = new JSDOM(

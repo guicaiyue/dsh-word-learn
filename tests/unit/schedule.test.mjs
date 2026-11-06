@@ -1,10 +1,11 @@
+// @vitest-environment node
 // 测什么：lib/schedule.mjs 里可纯算的部分（本地日界、DB ↔ FSRS 字段映射、
 // productive 上线闸门、常量）。DB 相关的 dueQueue/applyGrade/forecast 不在这里硬造，
 // 它们已由 legacy 的 test-schedule.mjs 用临时 Store 覆盖。
 // 为什么放单测：这些函数无 I/O，边界（时区零点、learning_steps 丢失、数字字符串）
 // 用单测断言更精确，也防止排期映射在重构时静默漂移。
 
-import { describe, test } from 'node:test'
+import { describe, test } from 'vitest'
 import assert from 'node:assert/strict'
 import {
   DAILY_NEW_LIMIT,

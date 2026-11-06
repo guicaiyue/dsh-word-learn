@@ -1,8 +1,9 @@
+// @vitest-environment node
 // 测什么：lib/http.mjs 的 intParam / strParam —— 路由 query 参数的读值与钳制。
 // 为什么放单测：纯函数、无 I/O、无 ctx，边界（缺省/空串/0/负数/小数/max/min）
 // 用 legacy 端到端脚本覆盖成本太高，而且 legacy 只能证明"某个路由碰巧对了"。
 
-import { describe, test } from 'node:test'
+import { describe, test } from 'vitest'
 import assert from 'node:assert/strict'
 import { intParam, strParam } from '../../lib/host/http.js'
 
