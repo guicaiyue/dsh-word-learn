@@ -234,15 +234,18 @@ pnpm verify        # build + artifact:check + check:tarball + check + test
 用真实模块导出的函数/名单求值（不是复制一份逻辑），覆盖「对话正文该生效」与
 「左栏/右栏/对话面板根不该生效」两组。真机验证见下面「怎么确认划词范围生效」。
 
-**改了 `src/host/**` 怎么不重启就生效**：先 `pnpm build` 产出新的 `lib/host/**`，然后重挂插件。
-往 profile 的 `cordis.patch.yml` 末尾追加一行注释（内容随便，只要文件变了）会让 HMR 重排
-profile、尽量换掉链接包里改动过的模块 —— 这个办法在 `lib/*.mjs` 时代实测过；宿主源码迁到
-`src/host/**`、产物变成 `lib/host/**` 之后没有复测，**稳妥做法还是重挂插件或重启宿主**。
-判据：`POST /dsh-word-learn/<新路由>` 返回 401/403（信任栅栏）说明新代码已挂上；
-返回 404/405 说明还是旧代码。
+**改了 `src/host/**` 必须重启 dsh**（2026-11-06 实测，见 docs/plans/2026-11-05-build-migration.md）：
 
-旧办法：用 `plugin_manager` 把本插件关掉再打开（`set_plugin` target 是 loader 条目 id
-`include:dsh-word-learn`），关→开各一次能重跑 `apply()`。
+1. `pnpm build` 只是把 `src/host/**` 编成 `lib/host/**`，磁盘上换新了；
+2. 但宿主模块是进程内 `import()` 进来的，Node 的 ESM 缓存活到进程结束 —— 重挂插件
+   （或往 profile 的 `cordis.patch.yml` 追注释触发 profile 重排）只会重跑 `apply()`，
+   **不会重新解析模块**，跑的还是旧代码；
+3. 本轮迁移把入口从 `lib/index.js` 换成了 `lib/host/index.js`，入口解析也只发生在加载时，
+   所以必须重启一次。
+
+判据（重启后自检）：`GET /dsh-word-learn/lookup?word=throughput` 返回 `ok:true` 且
+`dict.senses.length > 0`；新加的 `POST` 路由返回 401/403（信任栅栏，说明已挂上）而不是 404/405。
+如果没重启就改宿主，症状是「代码改了、测试也过了、真机行为没变」。
 
 ⚠️ **首次给插件加 `dsh.client` 段必须重启宿主**：`dsh-client-modules` 会把
 "这个包不是 client 包"的否定结论缓存起来，HMR 不刷新该缓存。重启一次之后，
