@@ -14,8 +14,8 @@
 ## 1. 三条命令（其余都是补充）
 
 ```bash
-pnpm build         # 构建客户端产物 src/client/** -> dist/client.js（改前端后必须）
-pnpm verify        # 交付前的唯一验收：build + artifact + typecheck + lint + format + deps + 单测 + 组件测试 + 回归脚本
+pnpm build         # 双产物：src/client/** -> dist/client.js（tsdown）；src/host/** -> lib/host/**（tsc）
+pnpm verify        # 交付前的唯一验收：build + artifact + tarball + typecheck + lint + format + deps + 单测 + 组件/集成测试
 pnpm lint:fix      # 先修可自动修的
 pnpm format        # 再统一排版
 ```
@@ -23,10 +23,10 @@ pnpm format        # 再统一排版
 顺序：改完 → `pnpm lint:fix` → `pnpm format` → `pnpm verify`。
 `pnpm verify` 不绿就不要说"改好了"。绿了也要把输出贴进交付说明。
 
-单跑某个回归脚本：`node scripts/test-routes.mjs`（脚本自己造临时 `DSH_HOME`，不碰真实库）。
+单跑集成测试：`npx vitest run tests/integration`（真实 `ctx` 桩 + 临时 `DSH_HOME`，不碰真实库）。
 
-`pnpm deps:check`（dependency-cruiser）带跑环检测与分层方向；`pnpm test:unit` 只跑
-`tests/**/*.test.mjs`，`scripts/test-*.mjs` 归 `pnpm test:legacy`。
+`pnpm deps:check`（dependency-cruiser）带跑环检测与分层方向；`pnpm test:unit` 跑 `tests/**/*.test.mjs`
+（node:test），`pnpm test:component` 跑 vitest（`tests/component` 组件 + `tests/integration` 集成）。
 
 ## 2. 改 X 去哪里
 
@@ -40,28 +40,28 @@ pnpm format        # 再统一排版
 | 学习页纯逻辑 / 常量（无 React）        | `src/client/dashboard/logic.js`         | 不监听事件、不写样式；`plugin.js` 通过 `assetOf(name)` 读它                                                                                          |
 | 学习页样式（CSS 模板串）               | `src/client/dashboard/styles.js`        | `export const CSS`；apply 时写进 `<style data-plugin="dsh-word-learn">`                                                                              |
 | 对话内联标注、悬停小卡                 | `src/client/features/annotate/`         | `installAnnotate()` 装 observer/监听，返回 dispose；只在 `[data-chat-flow]` 内动                                                                     |
-| 新增/改一条路由的 handler              | `lib/routes/{组}.mjs`                   | 组：study/review/ai/repair/annotate；只解析参数，业务往下走                                                                                          |
-| 路由路径字符串                         | `lib/routes/paths.mjs`                  | 常量唯一出口，别在 handler 里写死路径                                                                                                                |
-| 响应出口（safeSend / fail / readJson） | `lib/routes/shared.mjs`                 | 响应只从 safeSend 出；错误只回稳定 code + 人话                                                                                                       |
-| 信任栅栏、registerRoute 包装           | `lib/index.js`                          | 入口只做挂载与卸载；**阶段 2 起不再往页面注入任何脚本**                                                                                              |
-| 词典/用户库单例                        | `lib/runtime.mjs`                       | 进程级状态；路由模块只消费                                                                                                                           |
-| 查词结果组装（lookupWord）             | `lib/lookup.mjs`                        | /lookup、/word、/translate 共用                                                                                                                      |
-| 路由 query / body 参数读值/钳制        | `lib/http.mjs`                          | query 数字过 `intParam`、body 数字过 `clampInt`；别裸写 `Number`                                                                                     |
-| 排期、FSRS 映射、队列、毕业/leech      | `lib/schedule.mjs`                      | 别在路由里直接算 FSRS                                                                                                                                |
-| 用户库生命周期（打开/重试/关闭/委托）  | `lib/store.mjs`                         | 门面：open/退避重试/close + 25 个薄委托，别往里堆逻辑                                                                                                |
-| SCHEMA 与迁移                          | `lib/store/schema.mjs`                  | 表结构/索引/`migrate()`；schema 变更见 CONVENTIONS §6.3                                                                                              |
-| 生词本、卡片、义项材料读写             | `lib/store/words.mjs`                   | SQL 归口之一；函数第一参数是 Store 实例                                                                                                              |
-| 统计、看板、补记债                     | `lib/store/review.mjs`                  | 函数第一参数是 Store 实例                                                                                                                            |
-| 设置读写                               | `lib/store/settings.mjs`                | 函数第一参数是 Store 实例                                                                                                                            |
+| 新增/改一条路由的 handler              | `src/host/routes/{组}.ts`               | 组：study/review/ai/repair/annotate；只解析参数，业务往下走                                                                                          |
+| 路由路径字符串                         | `src/host/routes/paths.ts`              | 常量唯一出口，别在 handler 里写死路径                                                                                                                |
+| 响应出口（safeSend / fail / readJson） | `src/host/routes/shared.ts`             | 响应只从 safeSend 出；错误只回稳定 code + 人话                                                                                                       |
+| 信任栅栏、registerRoute 包装           | `src/host/index.ts`                     | 入口只做挂载与卸载；**阶段 2 起不再往页面注入任何脚本**                                                                                              |
+| 词典/用户库单例                        | `src/host/runtime.ts`                   | 进程级状态；路由模块只消费                                                                                                                           |
+| 查词结果组装（lookupWord）             | `src/host/lookup.ts`                    | /lookup、/word、/translate 共用                                                                                                                      |
+| 路由 query / body 参数读值/钳制        | `src/host/http.ts`                      | query 数字过 `intParam`、body 数字过 `clampInt`；别裸写 `Number`                                                                                     |
+| 排期、FSRS 映射、队列、毕业/leech      | `src/host/schedule.ts`                  | 别在路由里直接算 FSRS                                                                                                                                |
+| 用户库生命周期（打开/重试/关闭/委托）  | `src/host/store.ts`                     | 门面：open/退避重试/close + 25 个薄委托，别往里堆逻辑                                                                                                |
+| SCHEMA 与迁移                          | `src/host/store/schema.ts`              | 表结构/索引/`migrate()`；schema 变更见 CONVENTIONS §6.3                                                                                              |
+| 生词本、卡片、义项材料读写             | `src/host/store/words.ts`               | SQL 归口之一；函数第一参数是 Store 实例                                                                                                              |
+| 统计、看板、补记债                     | `src/host/store/review.ts`              | 函数第一参数是 Store 实例                                                                                                                            |
+| 设置读写                               | `src/host/store/settings.ts`            | 函数第一参数是 Store 实例                                                                                                                            |
 | 发音（前端语音合成、音色选择）         | `src/client/features/voice.js`          | 零网络：只用浏览器自带音色，缓存的是偏好不是音频                                                                                                     |
-| 整句翻译、降级链                       | `lib/translate.mjs`                     | 交互路径：失败回 200 + `ok:false`                                                                                                                    |
-| AI 分析、义项材料、出题、队列          | `lib/enrich/*.mjs`                      | `ai-enrich.mjs` 只做再导出；队列 dispose 后靠下次 enqueue 重新武装（`rearmIfDisposed`）                                                              |
-| AI 分析用哪个模型                      | `lib/models.mjs`                        | 复用 DSH 模型目录，不自己维护名单                                                                                                                    |
-| 词典查询、变形回退、词频分级           | `lib/dict.mjs`                          | 只读 `data/ecdict.db`                                                                                                                                |
-| 回访（R5）、义项地图                   | `lib/r5.mjs`                            | 只记日志，不动 FSRS                                                                                                                                  |
-| 标注目标词表                           | `lib/annotate.mjs`                      | 只返回在学、有卡片的词                                                                                                                               |
-| 文本判断（是不是单词、拆词、代码过滤） | `lib/text.js`                           | 纯函数，改这里先看 `test-scope`/`test-routes`                                                                                                        |
-| 取 cordis 服务                         | `lib/service.mjs`                       | 用 `ctx.get(name)`；`ctx.llm` 会抛                                                                                                                   |
+| 整句翻译、降级链                       | `src/host/translate.ts`                 | 交互路径：失败回 200 + `ok:false`                                                                                                                    |
+| AI 分析、义项材料、出题、队列          | `src/host/enrich/*.ts`                  | `ai-enrich.ts` 只做再导出；队列 dispose 后靠下次 enqueue 重新武装（`rearmIfDisposed`）                                                               |
+| AI 分析用哪个模型                      | `src/host/models.ts`                    | 复用 DSH 模型目录，不自己维护名单                                                                                                                    |
+| 词典查询、变形回退、词频分级           | `src/host/dict.ts`                      | 只读 `data/ecdict.db`                                                                                                                                |
+| 回访（R5）、义项地图                   | `src/host/r5.ts`                        | 只记日志，不动 FSRS                                                                                                                                  |
+| 标注目标词表                           | `src/host/annotate.ts`                  | 只返回在学、有卡片的词                                                                                                                               |
+| 文本判断（是不是单词、拆词、代码过滤） | `src/host/text.ts`                      | 纯函数，改这里先看 `test-scope`/`test-routes`                                                                                                        |
+| 取 cordis 服务                         | `src/host/service.ts`                   | 用 `ctx.get(name)`；`ctx.llm` 会抛                                                                                                                   |
 | 包级文案                               | `locale/zh.json`、`locale/en.json`      | 两份键必须一致                                                                                                                                       |
 
 ## 3. 硬约束（违反即算失败，不讨论）
@@ -76,6 +76,8 @@ pnpm format        # 再统一排版
   改它触发 HMR 是运维手段，不要把语义改掉。
 - **构建是唯一入口**：客户端产物只能由 `pnpm build`（tsdown）从 `src/client/**` 生成，`dist/` 不入库；
   产物壳/`id`/externals 由 `tsdown.config.ts` 定义，**不许手改 `dist/client.js`**（`pnpm artifact:check` 会校验）。
+  宿主源码只有 `src/host/**`（TypeScript），`lib/host/**` 是 `tsc -p tsconfig.host.json` 的产物（gitignore），
+  **不许手改 `lib/host/**`**；`package.json` 的 `main`/`exports` 必须指向产物入口。
 - **客户端产物只许 `require` 宿主模块表**（11 个 baseline seed，见 `tsdown.config.ts`）：多 require 一个包就是运行期
   `missed the module table`；运行时依赖（如 `ts-fsrs`）留在宿主侧，不进客户端。
 - **不许在 `src/client/**` 里 import Node 内建或 `process`/`__dirname`**：产物跑在浏览器。
@@ -94,7 +96,10 @@ pnpm format        # 再统一排版
 4. **改完自检**：`pnpm lint:fix && pnpm format && pnpm verify`。
 5. **说清生效方式**：前端全部在 `src/client/**` —— 改完 `pnpm build`（或 `pnpm dev` 常驻）重建
    `dist/client.js`，平台 client-hmr 会拉新产物并重挂模块（**不用刷新、不用重启**）；但重挂会重建插件的
-   面板，当前打开的学习页会退回首页，重新点侧栏「英语学习」即可看到新代码。`lib/**/*.mjs` 重挂插件即可。
+   面板，当前打开的学习页会退回首页，重新点侧栏「英语学习」即可看到新代码。
+   **宿主侧（`src/host/**`）没有热重载**：改完同样要 `pnpm build`（tsc 出 `lib/host/**`），然后**重启 dsh**。
+   2026-11-06 实测：宿主改动后触发插件重挂，进程里跑的还是旧模块（Node ESM 缓存）；
+   重启后才加载新入口 `lib/host/index.js` 与新逻辑。
    改完前端要告诉人"怎么看到效果"。
 
 ## 5. 交付说明必须包含
@@ -122,7 +127,8 @@ pnpm format        # 再统一排版
 
 - 不确定某段代码为什么这么写：先看文件头注释和 `DESIGN.md` §9 的风险编号；
   两者都没有，说明是历史债，**保守改**并留注释。
-- 不确定改动是否生效：看 `__DSH_BOOT__.entries` 里有没有 `dsh-word-learn`（权威信号），
+- 不确定改动是否生效：前端看 `__DSH_BOOT__.entries` 里有没有 `dsh-word-learn`（权威信号）；
+  宿主侧改动是否生效看「重启后」的接口行为（客户端 bundle 热重载不会更新宿主模块），
   不要自己拼 `/plugins/...` URL（一定 404）。步骤见 README「开发」节。
 - 不确定预算/边界：跑 `pnpm lint`，报错信息就是规则原文；看不懂再回 `CONVENTIONS.md`。
 - 文档里的行号是写文档那一刻的快照；找不到就用函数名/常量名/报错文案搜，别死认行号。
