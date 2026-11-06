@@ -133,6 +133,9 @@ describe('查词与生词本', () => {
     eq(r.code, 404)
     eq(json(r).ok, false)
     ok(typeof json(r).error === 'string' && json(r).error.length > 0, '404 应带说明')
+    // 错误形状约定：{ok:false, code, error}。缺 code 时客户端只能去匹配中文文案，
+    // 一旦改文案就是破坏性变更（2026-11-06 补）。
+    eq(json(r).code, 'NOT_IN_DICT', '404 必须带稳定 code，而不是只有人话')
   })
 
   it('POST /save：拆词返回 kind/best/words，过滤掉代码路径', async () => {

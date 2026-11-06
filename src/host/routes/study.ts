@@ -259,7 +259,7 @@ export function registerStudyRoutes(
         try {
           const info = store.get(word)
           if (!info) {
-            sendJson(res, 404, { ok: false, error: '生词本里没有这个词' })
+            sendJson(res, 404, { ok: false, code: 'WORD_NOT_FOUND', error: '生词本里没有这个词' })
             return
           }
           const dictInfo = dict.lookup(word)

@@ -51,8 +51,12 @@ export interface LookupOk {
   warnings: string[]
 }
 
+/** 查词失败的错误码：客户端按 code 分支，不解析中文 error 文案。 */
+export const LOOKUP_NOT_IN_DICT = 'NOT_IN_DICT'
+
 /** 查词结果（词典里没有时 ok:false）。 */
-export type LookupResult = LookupOk | { ok: false; error: string; query: unknown }
+export type LookupResult =
+  LookupOk | { ok: false; code: typeof LOOKUP_NOT_IN_DICT; error: string; query: unknown }
 
 /**
  * 查一个词的完整信息。
@@ -64,7 +68,7 @@ export async function lookupWord(
 ): Promise<LookupResult> {
   const info = dict.lookup(word)
   if (!info) {
-    return { ok: false, error: '词典里没有这个词', query: word }
+    return { ok: false, code: LOOKUP_NOT_IN_DICT, error: '词典里没有这个词', query: word }
   }
 
   let extra: EnrichResult = { ok: false, examples: [], synonyms: [] }

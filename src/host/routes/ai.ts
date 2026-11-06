@@ -137,7 +137,7 @@ export function registerAiRoutes(
           }
           const entry = store.get(word)
           if (!entry) {
-            sendJson(res, 404, { ok: false, error: '生词本里没有这个词' })
+            sendJson(res, 404, { ok: false, code: 'WORD_NOT_FOUND', error: '生词本里没有这个词' })
             return
           }
           const meta = store.getMeta(word)
