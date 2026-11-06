@@ -25,8 +25,9 @@ pnpm format        # 再统一排版
 
 单跑集成测试：`npx vitest run tests/integration`（真实 `ctx` 桩 + 临时 `DSH_HOME`，不碰真实库）。
 
-`pnpm deps:check`（dependency-cruiser）带跑环检测与分层方向；`pnpm test:unit` 跑 `tests/**/*.test.mjs`
-（node:test），`pnpm test:component` 跑 vitest（`tests/component` 组件 + `tests/integration` 集成）。
+`pnpm deps:check`（dependency-cruiser）带跑环检测与分层方向；测试全部由 vitest 一个 runner 跑：
+`pnpm test:unit`（unit/features/contract，node 环境）、`pnpm test:component`（jsdom+RTL）、
+`pnpm test:integration`（真实 ctx 桩 + 临时 DSH_HOME）、`pnpm test`（全量 + 覆盖率门槛）。
 
 ## 2. 改 X 去哪里
 
@@ -60,7 +61,7 @@ pnpm format        # 再统一排版
 | 词典查询、变形回退、词频分级           | `src/host/dict.ts`                      | 只读 `data/ecdict.db`                                                                                                                                |
 | 回访（R5）、义项地图                   | `src/host/r5.ts`                        | 只记日志，不动 FSRS                                                                                                                                  |
 | 标注目标词表                           | `src/host/annotate.ts`                  | 只返回在学、有卡片的词                                                                                                                               |
-| 文本判断（是不是单词、拆词、代码过滤） | `src/host/text.ts`                      | 纯函数，改这里先看 `test-scope`/`test-routes`                                                                                                        |
+| 文本判断（是不是单词、拆词、代码过滤） | `src/host/text.ts`                      | 纯函数，改这里先跑 `tests/features/scope.test.mjs` 与 `tests/integration/routes.test.ts`                                                             |
 | 取 cordis 服务                         | `src/host/service.ts`                   | 用 `ctx.get(name)`；`ctx.llm` 会抛                                                                                                                   |
 | 包级文案                               | `locale/zh.json`、`locale/en.json`      | 两份键必须一致                                                                                                                                       |
 
@@ -71,6 +72,9 @@ pnpm format        # 再统一排版
   任何会写库的测试/脚本必须先 `mkdtemp` 临时 `DSH_HOME`（见 CONVENTIONS §9.2）。
 - **不许改 `DESIGN.md` 的历史结论**：那是决策与实测记录。新结论只能追加，并注明日期。
 - **不许为过 lint 加 `eslint-disable`**。确需例外时，必须写原因 + 到期条件，并说明为什么规则不适用。
+  TS/TSX 也进 ESLint（`typescript-eslint`，`parserOptions.project` 指向 `tsconfig.eslint.json`）：
+  类型感知只开三条能命中真缺陷的规则（`no-floating-promises` / `no-misused-promises` / `await-thenable`），
+  `no-explicit-any` 关着 —— 宿主 ctx 边界来自 cordis、没有类型，是已知缺口。
 - **不许制造 import 环**：`pnpm deps:check`（dependency-cruiser 的 `no-circular`，挂在 `pnpm check`/`verify` 里）会打印完整环路径。
 - **不许改 `cordis.patch.yml` 的语义**（id/name/insert 结构）。它只是挂载声明；
   改它触发 HMR 是运维手段，不要把语义改掉。

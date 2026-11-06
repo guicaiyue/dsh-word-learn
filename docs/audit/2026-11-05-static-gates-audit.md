@@ -184,3 +184,14 @@
 3. 构建后 bundle 体积会随功能增长；预算需在阶段 2 复测。
 4. vitest 迁移会短期出现「旧测试删了、新测试还没补齐」的空窗；要求逐条对照断言清单，PR 附覆盖对照表。
 5. 真机验收无法进 CI，仍依赖人工/Agent + 运行中的 DSH。
+
+---
+
+## 后续修复（2026-11-06，按本报告 §7 风险清单执行）
+
+| 风险                                             | 处理                                                                                                                                                              | 证据                                                                              |
+| ------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
+| 标注悬停卡切页后残留（缺 mouseout 时机）         | `dropCardIfDetached()`：MutationObserver 回调与 scroll rAF 里核对锚点 `isConnected`，卸载即收卡                                                                   | `tests/component/annotate-card.test.ts`（去掉修复代码后该用例超时红，恢复后绿）   |
+| `/lookup` 未知词 404 只有中文 error、无稳定 code | 失败形状补 `code`：`NOT_IN_DICT`（词典）/ `WORD_NOT_FOUND`（生词本），客户端可按 code 分支                                                                        | `tests/integration/routes.test.ts` 断言 `json.code === 'NOT_IN_DICT'`             |
+| `src/host/**` 与 tests TS 零 ESLint              | 引入 `typescript-eslint` + `tsconfig.eslint.json`；只开三条类型感知规则（floating/misused promise、await-thenable），`no-explicit-any` 关（ctx 无类型，已知缺口） | `pnpm lint` 0 error；修掉 2 处 floating promise（enrich 队列后台排水显式 `void`） |
+| 覆盖率两套 runner 不合并、全局无门禁             | `node:test` 全量迁入 vitest node project；覆盖率量 `lib/host/**/*.js`，全局 70/62/78 + 关键三文件 95/85/95                                                        | `pnpm test`：26 文件 / 318 用例，实测 72.9/66.3/81.5 达标                         |

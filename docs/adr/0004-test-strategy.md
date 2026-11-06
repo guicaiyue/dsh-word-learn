@@ -42,3 +42,19 @@
 | Playwright 全面替代组件测试     | 太慢，且调试成本高；只用于本地可选 E2E                       |
 
 选 vitest + jsdom/RTL。
+
+---
+
+## 状态更新（2026-11-06）：统一完成
+
+- 决策 1/2/7 落地：`node:test` 全部迁入 vitest；不再有两套 runner，也不再有 vm 替身。
+  `tests/unit`、`tests/features`、`tests/contract` 的 `*.test.mjs` 顶部写
+  `// @vitest-environment node`；component 走 jsdom；integration 走 node。
+- 决策 5 落地：覆盖率从「3 个关键文件快照」升级为 **全局门槛 + 关键模块门槛**：
+  `vitest --coverage` 量 `lib/host/**/*.js`（排除入口 `index.js`），
+  全局行 70% / 分支 62% / 函数 78%（2026-11-06 实测 72.9 / 66.3 / 81.5），
+  `lib/host/{http,text,models}.js` 仍 95/85/95。
+- 有意保留的偏离：**客户端不计入覆盖率门禁**。组件测的是 `dist/client.js` 产物，
+  jsdom 覆盖不到布局/悬停/滚动分支；把行数门槛加到 `src/client` 只会产生为 jsdom 而写的假测试
+  （ADR-0005 的原始教训）。客户端质量仍靠产物契约 + 真机清单。
+- 验收：`pnpm verify` exit 0，26 个测试文件 / 318 条用例（2026-11-06）。

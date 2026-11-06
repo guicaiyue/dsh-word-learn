@@ -22,7 +22,7 @@
 - **只对对话正文生效**：选区两端必须落在 `[data-chat-flow]` 里（Chat 视图正文列）。
   左侧栏、右侧栏、轨迹（Trajectory）页、英语学习看板一律不响应。
   严格模式：锚点找不到就完全不弹，不会退回"全页面乱弹"。
-  改动前先跑 `node --test tests/features/scope.test.mjs`（范围判定与排除名单的单一来源在
+  改动前先跑 `npx vitest run tests/features/scope.test.mjs`（范围判定与排除名单的单一来源在
   `src/client/features/core.js`，改这里必跑）
 - **划句子给译文**：选中整句时先给中文译文，下面再列可拆的候选词。
   优先用 **DSH 自己的模型**翻（技术语境更准，`reviews`→复习、`latent space`→潜空间），
@@ -161,17 +161,17 @@ python scripts\build_dict.py
 
 ### 目录结构
 
-| 路径                                             | 说明                                                                                      |
-| ------------------------------------------------ | ----------------------------------------------------------------------------------------- |
-| `src/client/**`                                  | 前端源码（划词卡、标注、学习页）。tsdown 打成 `dist/client.js`（+ 外部 `.map`）           |
-| `src/host/**`                                    | 宿主源码（插件入口 `index.ts`、路由、词典/用户库/FSRS/AI 分析）。`tsc` 编到 `lib/host/**` |
-| `dist/`                                          | 客户端产物（gitignore，`pnpm build` 生成）                                                |
-| `lib/host/`                                      | 宿主产物（gitignore，`pnpm build` 生成）                                                  |
-| `tests/unit`、`tests/features`、`tests/contract` | `node:test`（`*.test.mjs`）                                                               |
-| `tests/component`                                | `vitest` + jsdom + RTL（`*.test.tsx`），渲染 `dist/client.js` 里的真实组件                |
-| `tests/integration`                              | `vitest`（node 环境，`*.test.ts`）：真实 ctx 桩 + 临时 `DSH_HOME` + 真实 `node:sqlite`    |
-| `tests/support`、`tests/helpers`                 | vitest 测试基座、node:test 的临时目录助手                                                 |
-| `data/ecdict.db`                                 | 精简词典（构建产物，见「重新生成词典」）                                                  |
+| 路径                                             | 说明                                                                                              |
+| ------------------------------------------------ | ------------------------------------------------------------------------------------------------- |
+| `src/client/**`                                  | 前端源码（划词卡、标注、学习页）。tsdown 打成 `dist/client.js`（+ 外部 `.map`）                   |
+| `src/host/**`                                    | 宿主源码（插件入口 `index.ts`、路由、词典/用户库/FSRS/AI 分析）。`tsc` 编到 `lib/host/**`         |
+| `dist/`                                          | 客户端产物（gitignore，`pnpm build` 生成）                                                        |
+| `lib/host/`                                      | 宿主产物（gitignore，`pnpm build` 生成）                                                          |
+| `tests/unit`、`tests/features`、`tests/contract` | `vitest`（node 环境，`*.test.mjs`）：宿主纯函数/模块契约、前端纯函数与 install 生命周期、产物契约 |
+| `tests/component`                                | `vitest` + jsdom + RTL（`*.test.tsx`），渲染 `dist/client.js` 里的真实组件                        |
+| `tests/integration`                              | `vitest`（node 环境，`*.test.ts`）：真实 ctx 桩 + 临时 `DSH_HOME` + 真实 `node:sqlite`            |
+| `tests/support`、`tests/helpers`                 | vitest 测试基座、临时 `DSH_HOME` 助手                                                             |
+| `data/ecdict.db`                                 | 精简词典（构建产物，见「重新生成词典」）                                                          |
 
 ### 常用命令
 
@@ -189,15 +189,11 @@ pnpm format        # prettier --write .
 pnpm format:check
 pnpm deps:check    # dependency-cruiser：环 + 分层方向 + 客户端不碰 node: 内建
 
-# 单元测试（node:test，跑 tests/**/*.test.mjs）
-pnpm test:unit
-# 单测 + 覆盖率门槛（只卡 lib/host/{http,text,models}.js 三个关键文件，95/85/95）
-pnpm test:unit:coverage
-
-# 组件测试 + 集成测试（vitest；跑之前先 pnpm build 重建 dist/client.js）
-pnpm test:component
-# 只跑集成测试（真实 ctx 桩 + 临时 DSH_HOME，不碰真实用户库）
-npx vitest run tests/integration
+# 测试全部由 vitest 一个 runner 跑（unit/features/contract 走 node 环境，component 走 jsdom）
+pnpm test                # 全量 + 覆盖率门槛（= npx vitest run --coverage）
+pnpm test:unit           # 单元/特性/契约
+pnpm test:component      # 组件层（渲染 dist/client.js 真实组件）
+pnpm test:integration    # 集成层（真实 ctx 桩 + 临时 DSH_HOME，不碰真实用户库）
 # 只跑某一条
 npx vitest run tests/integration/routes.test.ts
 
@@ -206,7 +202,7 @@ pnpm artifact:check
 pnpm check:tarball
 
 # 全部测试 / 交付前唯一验收
-pnpm test          # test:unit + test:unit:coverage + test:component（vitest 含 integration）
+pnpm test          # vitest run --coverage：26 个文件 318 条用例 + 覆盖率门槛
 pnpm verify        # build + artifact:check + check:tarball + check + test
 ```
 
@@ -214,8 +210,11 @@ pnpm verify        # build + artifact:check + check:tarball + check + test
 > 加载宿主入口、从 `exports["./client"]`（`dist/client.js`）读客户端产物，
 > 产物缺失时宿主会报 `run pnpm run build before launch`。
 >
-> 覆盖率现状：只有上面三个宿主关键文件有门槛；**全局覆盖率还没有统一**（`node:test`
-> 与 `vitest` 分开跑），记入残余风险。
+> 覆盖率口径（2026-11-06 起统一）：`vitest --coverage` 量 `lib/host/**/*.js`（宿主编译产物，
+> 也就是运行期真正加载的那份），全局门槛行 70% / 分支 62% / 函数 78%（实测 72.9/66.3/81.5），
+> 另有 `lib/host/{http,text,models}.js` 三个关键文件 95/85/95。
+> **客户端不计入覆盖率门禁**：组件测试渲染的是 `dist/client.js` 产物，jsdom 又覆盖不到
+> 布局/悬停/滚动分支，硬卡行数只会逼出针对 jsdom 的假测试（ADR-0005）。
 
 ### 改哪一半、要不要重启
 
@@ -229,7 +228,7 @@ pnpm verify        # build + artifact:check + check:tarball + check + test
 `apply()` 里 `ctx.effect(installWordcard)` / `ctx.effect(installAnnotate)` 装卸，
 不存在「脚本晚到 / 依赖取不到」的竞态，也就没有了「正在加载」兜底和 `window.__dwl*` 全局。
 
-**改生效范围之后怎么验**：`node --test tests/features/scope.test.mjs` 直接 import
+**改生效范围之后怎么验**：`npx vitest run tests/features/scope.test.mjs` 直接 import
 `src/client/features/core.js`（纯判定模块）和 `annotate` 的 `internals`，
 用真实模块导出的函数/名单求值（不是复制一份逻辑），覆盖「对话正文该生效」与
 「左栏/右栏/对话面板根不该生效」两组。真机验证见下面「怎么确认划词范围生效」。

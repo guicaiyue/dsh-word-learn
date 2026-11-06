@@ -143,3 +143,11 @@
   新增 GitHub Actions（只跑 `pnpm verify`）+ `prepublishOnly = pnpm build`；覆盖率门槛保持三条关键模块 include。
   验证：`pnpm verify` exit 0（artifact 16/16、tarball 42 文件、depcruise 51 modules/128 deps 0 违规、
   node --test 181/181、vitest 136/136）。
+
+- **2026-11-06 · 交付后修复轮**：按审计报告 §7 的残余风险逐条修 ——
+  标注悬停卡切页残留（MutationObserver 核对锚点 `isConnected`，补 jsdom 回归，去掉修复会红）、
+  `/lookup` 404 补稳定 code（`NOT_IN_DICT` / `WORD_NOT_FOUND`）、
+  `typescript-eslint` 接管 TS/TSX（`tsconfig.eslint.json`，三条类型感知规则，修掉 2 处
+  floating promise）、`node:test` 全量并入 vitest node project 并落地**全局覆盖率门槛**
+  （`lib/host/**/*.js`，行 70 / 分支 62 / 函数 78，实测 72.9/66.3/81.5；关键三文件仍 95/85/95）。
+  验收：`pnpm verify` exit 0，26 个测试文件 / 318 条用例。

@@ -30,37 +30,37 @@
 浏览器侧按 `exports["./client"]` 加载 `dist/client.js`（一个 `__ModuleLoader__.load` 包）。
 `lib/host/**` 与 `dist/**` 都是 gitignore 的构建产物，**不入库、不手改**。
 
-| 路径                                                                           | 跑在哪                        | 能做什么                                                                                     | 禁止什么                                             |
-| ------------------------------------------------------------------------------ | ----------------------------- | -------------------------------------------------------------------------------------------- | ---------------------------------------------------- |
-| `src/host/index.ts`                                                            | 宿主（Node）                  | 插件入口：`apply(root)`、`inject(['webServer'])`、信任栅栏、`registerRoute` 包装、装卸       | 写业务算法；写 handler；拼 SQL；import `src/client/` |
-| `src/host/routes/*.ts`                                                         | 宿主（Node）                  | 22 条 API 路由按组注册（study/review/ai/repair/annotate）                                    | 绕开 `registerRoute`；自己拼响应头                   |
-| `src/host/routes/shared.ts`                                                    | 宿主（Node）                  | `safeSend` / `fail` / `unavailable` / `readJson` / `isFalse`；`clampInt` 从 http 再导出      | 直接 `res.writeHead` 二次写头                        |
-| `src/host/routes/paths.ts`                                                     | 宿主（Node）                  | 路由路径常量唯一出口                                                                         | handler 里写死路径字符串                             |
-| `src/host/runtime.ts`                                                          | 宿主（Node）                  | 词典/用户库进程级单例                                                                        | 处理请求；路由层状态                                 |
-| `src/host/lookup.ts`                                                           | 宿主（Node）                  | 查词组装（词典 + 补全 + 生词本 + 警告）                                                      | 直接注册路由                                         |
-| `src/host/http.ts`                                                             | 宿主（Node）                  | 入参读值与钳制的唯一归口：query `intParam`/`strParam` + body `clampInt`                      | 在 handler 里裸写 `Number(...)`；自己夹上下限        |
-| `src/host/store.ts`                                                            | 宿主（Node）                  | 用户库门面：open/退避重试/close + 薄委托                                                     | 写业务 SQL（SQL 在 `src/host/store/*.ts`）           |
-| `src/host/store/*.ts`                                                          | 宿主（Node）                  | schema/迁移、生词本、统计/补记、设置；首参是 Store 实例                                      | 自己 open 库；把 `store.db` 往路由层传               |
-| `src/host/ai-enrich.ts`                                                        | 宿主（Node）                  | AI 分析/出题/后台队列的门面（再导出 + 生命周期）                                             | 写业务算法（实现都在 `enrich/*.ts`）                 |
-| `src/host/enrich/*.ts`                                                         | 宿主（Node）                  | 提示词、解析、出题、后台队列、模型调用                                                       | 直接读库；把外部失败抛给交互路径                     |
-| `src/host/{dict,schedule,translate,r5,annotate,models,text,service,enrich}.ts` | 宿主（Node）                  | 词典、FSRS 排期、翻译、R5 回访、标注词表、模型选择、文本工具、取服务、外部增强               | 模块加载时开用户库；import `src/client/`             |
-| `src/client/entry.ts`                                                          | 浏览器 bundle 入口            | 只做导出：`export { inject, apply, __test__ }`（loader 壳由 `tsdown.config.ts` 生成）        | 写业务                                               |
-| `src/client/plugin.js`                                                         | 浏览器（React）               | 学习页四视图、侧栏入口与主面板、客户端 locale、页面级装配（`ctx.effect`）                    | Node API；`node:*`；模块期副作用；直连 SQLite        |
-| `src/client/dashboard/logic.js`                                                | 浏览器（无 React）            | 学习页纯逻辑/常量/取数                                                                       | React；监听事件；写样式                              |
-| `src/client/dashboard/styles.js`                                               | 浏览器                        | 学习页 CSS 模板串（`export const CSS`），apply 时写进 `<style data-plugin>`                  | 碰 DOM 逻辑；写业务                                  |
-| `src/client/features/core.js`                                                  | 浏览器（纯判定）              | 划词/标注的生效范围与**排除范围单一来源**（`BLOCKED_ELEMENTS`/`blockedSelector`）            | DOM 副作用；另抄一份排除名单                         |
-| `src/client/features/voice.js`                                                 | 浏览器                        | speechSynthesis 封装（零网络，缓存的是偏好不是音频）                                         | 网络请求；音频缓存                                   |
-| `src/client/features/wordcard/{index,card,style}.js`                           | 浏览器                        | `installWordcard()` 装监听/建卡并返回 dispose；`card.js` 视图、`style.js` CSS 字符串         | 模块期副作用（必须在 install 内）；改页面正文        |
-| `src/client/features/annotate/*`                                               | 浏览器                        | `installAnnotate()` 装 observer/监听并返回 dispose；只在 `[data-chat-flow]` 内动             | 标注代码块/流式/折叠/其它插件弹窗                    |
-| `dist/client.js`（+ `.map`）                                                   | 浏览器                        | 单 bundle 产物（`pnpm build` 生成，gitignore）                                               | 手改；提交进 git；写 Node 内建                       |
-| `lib/host/**`                                                                  | 宿主（Node）                  | `tsc -p tsconfig.host.json` 产物（gitignore）                                                | 手改；当源码编辑；提交进 git                         |
-| `data/ecdict.db`                                                               | 只读                          | ECDICT 精简词典（`scripts/build_dict.py` 构建）                                              | 写入；手改 `.db`                                     |
-| `$DSH_HOME/dsh-word-learn/user.db`                                             | 只经 `src/host/store.ts` 门面 | 生词本、卡片、复习日志、设置（**不可再生**）                                                 | 测试直连真实库                                       |
-| `$DSH_HOME/dsh-word-learn/cache/`                                              | 可删                          | 翻译缓存（发音不走网络，没有音频缓存）                                                       | 当持久数据依赖                                       |
-| `tests/`                                                                       | Node / jsdom                  | 见 §9：unit/features/contract（node:test）、component（vitest+jsdom）、integration（vitest） | 真实网络、真实用户库、真实 TTS 发声                  |
-| `scripts/`                                                                     | Node（手跑/CI）               | `check-artifact.mjs`（产物契约）、`check-tarball.mjs`（包清单）、`build_dict.py`（词典）     | 放前端/路由回归——测试在 `tests/`                     |
-| `locale/`                                                                      | 宿主与客户端                  | 包级文案（`meta.*`）                                                                         | 放业务文案                                           |
-| `docs/adr/`、`docs/plans/`                                                     | 不运行                        | 决策记录与迁移计划（历史证据，不改结论，只追加）                                             | 当现行规范引用而不看日期                             |
+| 路径                                                                           | 跑在哪                        | 能做什么                                                                                                 | 禁止什么                                             |
+| ------------------------------------------------------------------------------ | ----------------------------- | -------------------------------------------------------------------------------------------------------- | ---------------------------------------------------- |
+| `src/host/index.ts`                                                            | 宿主（Node）                  | 插件入口：`apply(root)`、`inject(['webServer'])`、信任栅栏、`registerRoute` 包装、装卸                   | 写业务算法；写 handler；拼 SQL；import `src/client/` |
+| `src/host/routes/*.ts`                                                         | 宿主（Node）                  | 22 条 API 路由按组注册（study/review/ai/repair/annotate）                                                | 绕开 `registerRoute`；自己拼响应头                   |
+| `src/host/routes/shared.ts`                                                    | 宿主（Node）                  | `safeSend` / `fail` / `unavailable` / `readJson` / `isFalse`；`clampInt` 从 http 再导出                  | 直接 `res.writeHead` 二次写头                        |
+| `src/host/routes/paths.ts`                                                     | 宿主（Node）                  | 路由路径常量唯一出口                                                                                     | handler 里写死路径字符串                             |
+| `src/host/runtime.ts`                                                          | 宿主（Node）                  | 词典/用户库进程级单例                                                                                    | 处理请求；路由层状态                                 |
+| `src/host/lookup.ts`                                                           | 宿主（Node）                  | 查词组装（词典 + 补全 + 生词本 + 警告）                                                                  | 直接注册路由                                         |
+| `src/host/http.ts`                                                             | 宿主（Node）                  | 入参读值与钳制的唯一归口：query `intParam`/`strParam` + body `clampInt`                                  | 在 handler 里裸写 `Number(...)`；自己夹上下限        |
+| `src/host/store.ts`                                                            | 宿主（Node）                  | 用户库门面：open/退避重试/close + 薄委托                                                                 | 写业务 SQL（SQL 在 `src/host/store/*.ts`）           |
+| `src/host/store/*.ts`                                                          | 宿主（Node）                  | schema/迁移、生词本、统计/补记、设置；首参是 Store 实例                                                  | 自己 open 库；把 `store.db` 往路由层传               |
+| `src/host/ai-enrich.ts`                                                        | 宿主（Node）                  | AI 分析/出题/后台队列的门面（再导出 + 生命周期）                                                         | 写业务算法（实现都在 `enrich/*.ts`）                 |
+| `src/host/enrich/*.ts`                                                         | 宿主（Node）                  | 提示词、解析、出题、后台队列、模型调用                                                                   | 直接读库；把外部失败抛给交互路径                     |
+| `src/host/{dict,schedule,translate,r5,annotate,models,text,service,enrich}.ts` | 宿主（Node）                  | 词典、FSRS 排期、翻译、R5 回访、标注词表、模型选择、文本工具、取服务、外部增强                           | 模块加载时开用户库；import `src/client/`             |
+| `src/client/entry.ts`                                                          | 浏览器 bundle 入口            | 只做导出：`export { inject, apply, __test__ }`（loader 壳由 `tsdown.config.ts` 生成）                    | 写业务                                               |
+| `src/client/plugin.js`                                                         | 浏览器（React）               | 学习页四视图、侧栏入口与主面板、客户端 locale、页面级装配（`ctx.effect`）                                | Node API；`node:*`；模块期副作用；直连 SQLite        |
+| `src/client/dashboard/logic.js`                                                | 浏览器（无 React）            | 学习页纯逻辑/常量/取数                                                                                   | React；监听事件；写样式                              |
+| `src/client/dashboard/styles.js`                                               | 浏览器                        | 学习页 CSS 模板串（`export const CSS`），apply 时写进 `<style data-plugin>`                              | 碰 DOM 逻辑；写业务                                  |
+| `src/client/features/core.js`                                                  | 浏览器（纯判定）              | 划词/标注的生效范围与**排除范围单一来源**（`BLOCKED_ELEMENTS`/`blockedSelector`）                        | DOM 副作用；另抄一份排除名单                         |
+| `src/client/features/voice.js`                                                 | 浏览器                        | speechSynthesis 封装（零网络，缓存的是偏好不是音频）                                                     | 网络请求；音频缓存                                   |
+| `src/client/features/wordcard/{index,card,style}.js`                           | 浏览器                        | `installWordcard()` 装监听/建卡并返回 dispose；`card.js` 视图、`style.js` CSS 字符串                     | 模块期副作用（必须在 install 内）；改页面正文        |
+| `src/client/features/annotate/*`                                               | 浏览器                        | `installAnnotate()` 装 observer/监听并返回 dispose；只在 `[data-chat-flow]` 内动                         | 标注代码块/流式/折叠/其它插件弹窗                    |
+| `dist/client.js`（+ `.map`）                                                   | 浏览器                        | 单 bundle 产物（`pnpm build` 生成，gitignore）                                                           | 手改；提交进 git；写 Node 内建                       |
+| `lib/host/**`                                                                  | 宿主（Node）                  | `tsc -p tsconfig.host.json` 产物（gitignore）                                                            | 手改；当源码编辑；提交进 git                         |
+| `data/ecdict.db`                                                               | 只读                          | ECDICT 精简词典（`scripts/build_dict.py` 构建）                                                          | 写入；手改 `.db`                                     |
+| `$DSH_HOME/dsh-word-learn/user.db`                                             | 只经 `src/host/store.ts` 门面 | 生词本、卡片、复习日志、设置（**不可再生**）                                                             | 测试直连真实库                                       |
+| `$DSH_HOME/dsh-word-learn/cache/`                                              | 可删                          | 翻译缓存（发音不走网络，没有音频缓存）                                                                   | 当持久数据依赖                                       |
+| `tests/`                                                                       | Node / jsdom                  | 见 §9：unit/features/contract（vitest node 环境）、component（vitest+jsdom）、integration（vitest node） | 真实网络、真实用户库、真实 TTS 发声                  |
+| `scripts/`                                                                     | Node（手跑/CI）               | `check-artifact.mjs`（产物契约）、`check-tarball.mjs`（包清单）、`build_dict.py`（词典）                 | 放前端/路由回归——测试在 `tests/`                     |
+| `locale/`                                                                      | 宿主与客户端                  | 包级文案（`meta.*`）                                                                                     | 放业务文案                                           |
+| `docs/adr/`、`docs/plans/`                                                     | 不运行                        | 决策记录与迁移计划（历史证据，不改结论，只追加）                                                         | 当现行规范引用而不看日期                             |
 
 分文件是因为「改翻译不碰排期」：词汇、存储、排期、外部能力（`translate`/`enrich`/`ai-enrich`/
 `models`）各一层，新模块照这个切法起名。每个文件头注释都写了它为什么存在、踩过什么坑——
@@ -445,24 +445,27 @@ const limit = intParam(url, 'limit', { fallback: 200, min: 1, max: 500, floor: t
 
 ### 9.1 三个层次与命令
 
-| 命令                      | 跑什么                                                                                                                                                                                                        | 何时跑               |
-| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------- |
-| `pnpm test:unit`          | `node --test "tests/**/*.test.mjs"`：unit（宿主纯函数/模块契约，import `lib/host/**` 产物）、features（前端纯函数与 install 生命周期，import `src/client/features/*` 源码）、contract（产物源码/locale 契约） | 改完逻辑             |
-| `pnpm test:unit:coverage` | 单测 + 覆盖率门槛（`lib/host/{http,text,models}.js` 三个关键模块）                                                                                                                                            | 改纯函数或模型层     |
-| `pnpm test:component`     | `vitest run`：`tests/component`（jsdom + RTL，渲染 `dist/client.js` 真实组件）+ `tests/integration`（node 环境，真实 `ctx` 桩 + 临时 `DSH_HOME` + 真实 `node:sqlite`）                                        | 改前端/路由/数据访问 |
-| `pnpm deps:check`         | dependency-cruiser（环 + 分层方向 + 客户端不碰 `node:`）                                                                                                                                                      | 拆/并模块后          |
-| `pnpm verify`             | `build` → `artifact:check` → `check:tarball` → `check`（typecheck/lint/format/deps）→ `test`（unit/coverage/vitest）                                                                                          | **交付前唯一验收**   |
+| 命令                    | 跑什么                                                                                                                                                                                                                          | 何时跑             |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------ |
+| `pnpm test:unit`        | `vitest run tests/unit tests/features tests/contract`：unit（宿主纯函数/模块契约，import `lib/host/**` 产物）、features（前端纯函数与 install 生命周期，import `src/client/features/*` 源码）、contract（产物源码/locale 契约） | 改完逻辑           |
+| `pnpm test:component`   | `vitest run tests/component`：jsdom + RTL，渲染 `dist/client.js` 真实组件                                                                                                                                                       | 改前端             |
+| `pnpm test:integration` | `vitest run tests/integration`：node 环境，真实 `ctx` 桩 + 临时 `DSH_HOME` + 真实 `node:sqlite`                                                                                                                                 | 改路由/数据访问    |
+| `pnpm test`             | 全量 + 覆盖率门槛（`vitest run --coverage`，26 文件 318 条）                                                                                                                                                                    | **交付前必跑**     |
+| `pnpm deps:check`       | dependency-cruiser（环 + 分层方向 + 客户端不碰 `node:`）                                                                                                                                                                        | 拆/并模块后        |
+| `pnpm verify`           | `build` → `artifact:check` → `check:tarball` → `check`（typecheck/lint/format/deps）→ `test`（unit/coverage/vitest）                                                                                                            | **交付前唯一验收** |
 
 - **vitest 用哪份代码**：component 读 `dist/client.js`，integration 读 `lib/host/**`（编译产物，
   见 `tests/integration/support/tmp-home.ts` 的时序说明），所以**跑 vitest 前必须先 `pnpm build`**；
   `pnpm verify` 已先 build。只跑一条：`npx vitest run tests/component/views.test.tsx`。
-- **node:test 用哪份代码**：features/contract 直接 import `src/client/features/*.js`（源码）；
+- **unit/features/contract 用哪份代码**：features/contract 直接 import `src/client/features/*.js`（源码）；
   unit 直接 import `lib/host/*.js`（编译产物）。所以 `pnpm test:unit` 也要先 `pnpm build`
   （只跑 features/contract 时可以跳过）；`pnpm verify` 已先 build。
-- **覆盖率现状（照实写）**：只有 `lib/host/http.js`、`lib/host/text.js`、`lib/host/models.js`
-  三个文件设了门槛（行 95% / 分支 85% / 函数 95%），当前约 100%，是「现状快照」而不是质量杠杆。
-  **全局覆盖率还没有统一门禁**（node:test 与 vitest 两份运行不合并、`src/client` 的 JS 计量为 0），
-  这是已知缺口，不要把它说成已覆盖。
+  这些 `.mjs` 文件顶部写 `// @vitest-environment node`，不加载 jsdom。
+- **覆盖率口径（2026-11-06 统一，ADR-0004 收口）**：`pnpm test` 即 `vitest run --coverage`，
+  量 `lib/host/**/*.js`（宿主编译产物；排除入口 `lib/host/index.js`）。门槛：全局行 70% /
+  分支 62% / 函数 78%（实测 72.9 / 66.3 / 81.5），`lib/host/{http,text,models}.js` 三个关键
+  文件 95/85/95。**客户端不进覆盖率门禁**：组件测的是 `dist/client.js` 产物，jsdom 覆盖不到
+  布局/悬停/滚动分支，硬卡只会逼出假测试。
 - **真浏览器不替代**：组件/集成测试绿 ≠ 真机可用。每阶段仍按 ADR-0007 的真机清单验，证据落盘。
   Playwright E2E 是本地可选项，不进默认 verify（需要运行中的 dsh 与鉴权）。
 
@@ -475,9 +478,9 @@ const limit = intParam(url, 'limit', { fallback: 200, min: 1, max: 500, floor: t
   2026-11-04 踩过：用真实库跑脚本，真的改了排期、加了补记债、写了 `review_log`。
 - **禁止真实网络**：翻译/LLM/例句必须 stub（假 `ctx.llm`、`fetch` 打桩、已落盘缓存）。断网要能跑。
 - **发音是纯前端 `speechSynthesis`**，测试里注入假 synth（`__setSynth` 之类测试接口），不要真的发声。
-- **禁止打印后目测**：node:test 用 `assert/strict`（失败信息写中文且能独立读懂）；
+- **禁止打印后目测**：测试用 `assert/strict`（失败信息写中文且能独立读懂）；
   vitest 用 `expect` + RTL 查询（`getByRole`/`getByText`），断言用户可见行为，不要断言元素树 props。
-- **不许复制被测逻辑**：node:test 直接 import 真实模块求值；组件层渲染真实产物
+- **不许复制被测逻辑**：直接 import 真实模块求值；组件层渲染真实产物
   `dist/client.js` 的 `__test__`。不要手搓 React 替身、不要按函数名切字符串。
 - **测试要自己收尾**：`afterEach(cleanup)`（已由 `tests/support/setup.ts` 兜底）、
   dispose 测试必须验证 install→dispose→re-install 不叠加；写库测试清理临时目录。
@@ -541,7 +544,7 @@ const limit = intParam(url, 'limit', { fallback: 200, min: 1, max: 500, floor: t
 2. 纯 ESM 可直接 import，无原生编译、无 `postinstall`；
 3. 许可清楚（MIT/BSD/Apache 可接受；GPL 系单独评估，见 DESIGN.md 风险 7）；
 4. 离线可用，或只用于可降级的增强；
-5. 能内置替代的优先内置：`node:sqlite`、`node:test`、全局 `fetch`、`node:fs/promises`；
+5. 能内置替代的优先内置：`node:sqlite`、全局 `fetch`、`node:fs/promises`（测试 runner 已统一为 vitest，ADR-0004）；
 6. 客户端依赖会被打进 bundle：体积成本算进 `artifact:check` 的预算（400 KB / 100 KB gzip），
    大依赖优先留在宿主侧。
 
