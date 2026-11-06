@@ -823,6 +823,19 @@ function hideCard(immediate) {
 }
 
 /**
+ * 锚点 span 被卸载后把悬停卡收掉。
+ *
+ * 为什么需要：卡片挂在 `document.body` 上（脱离对话流），切到学习页/换会话时
+ * React 会把整棵 `[data-chat-flow]` 卸掉，但**不会**有鼠标事件告诉你；
+ * `mouseout`/`focusout` 都等不到，卡片就一直悬在屏幕上（2026-11-06 真机发现）。
+ * 所以每次 DOM 变化与滚动都核一次锚点是否还在文档里。
+ */
+function dropCardIfDetached() {
+  if (!state.cardEl) return
+  if (state.cardSpan && !state.cardSpan.isConnected) hideCard(false)
+}
+
+/**
  * 把卡片放到 span 下方/上方。
  *
  * 开销控制（审查报告 A 批第 8 条）：
@@ -1014,6 +1027,7 @@ function onScroll() {
   if (state.scrollRaf) return
   state.scrollRaf = window.requestAnimationFrame(function () {
     state.scrollRaf = 0
+    dropCardIfDetached()
     if (state.cardSpan && state.cardEl && state.cardEl.getAttribute('data-open') === '1') {
       positionCard(state.cardSpan)
     }
@@ -1107,6 +1121,9 @@ function onMutations() {
 function attachObserver() {
   if (state.observer || typeof MutationObserver !== 'function') return
   state.observer = new MutationObserver(function (records) {
+    // 先看卡片锚点还在不在：切页/换会话时整棵对话流被卸载，没有任何鼠标事件，
+    // 卡片必须在这里收掉（不受下面 relevant 判定的影响）。
+    dropCardIfDetached()
     // 只在 DSH 对话区有变化时才重扫；其它页面（侧栏/学习页）不触发。
     let relevant = false
     for (let i = 0; i < records.length; i += 1) {
