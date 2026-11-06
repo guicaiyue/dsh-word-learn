@@ -99,13 +99,13 @@
 
 ## 生效方式（构建后如何让运行中的 dsh 用上新产物）
 
-| 改动                                                   | 生效方式                                                                                                                     | 需要重启 dsh？ |
-| ------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------- | -------------- |
-| `src/client/**`                                        | `tsdown --watch` 产出 `dist/client.js` → 平台 `client-hmr` 500ms 轮询发现变化 → SSE `rebuilt` → 浏览器重载模块并重跑 `apply` | 否             |
-| `src/host/**`（阶段 1–2 的 `lib/**`）                  | `tsc -w` 产出 `dist/host/` → 往 profile `cordis.patch.yml` 追加一行注释（备份 → 改 → sha256 还原）触发重挂，约 6–8s          | 否             |
-| `dsh.client` 声明 / `exports['./client']` 路径首次变化 | 平台有「非 client 包」否定缓存，可能需重启一次                                                                               | 可能一次       |
-| `data/ecdict.db`                                       | 重建后重挂插件（dict 在 open 时读取）                                                                                        | 否             |
-| `locale/*.json`                                        | 重挂插件 + 页面刷新                                                                                                          | 否             |
+| 改动                                                   | 生效方式                                                                                                                          | 需要重启 dsh？ |
+| ------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------- | -------------- |
+| `src/client/**`                                        | `tsdown --watch` 产出 `dist/client.js` → 平台 `client-hmr` 500ms 轮询发现变化 → SSE `rebuilt` → 浏览器重载模块并重跑 `apply`      | 否             |
+| `src/host/**`（阶段 1–2 的 `lib/**`）                  | `tsc -p tsconfig.host.json` 产出 `lib/host/**`；进程内 Node ESM 已缓存旧模块，**必须重启 dsh**（2026-11-06 实测：重挂插件不生效） | 是             |
+| `dsh.client` 声明 / `exports['./client']` 路径首次变化 | 平台有「非 client 包」否定缓存，可能需重启一次                                                                                    | 可能一次       |
+| `data/ecdict.db`                                       | 重建后重挂插件（dict 在 open 时读取）                                                                                             | 否             |
+| `locale/*.json`                                        | 重挂插件 + 页面刷新                                                                                                               | 否             |
 
 ## 剩余风险（详见审计报告 §7）
 
@@ -125,3 +125,21 @@
   迁移 3 个 vm 旧脚本到 `tests/features/*.test.mjs`，删除 `tests/unit/inject-order.test.mjs`。
   验证：`pnpm verify` 全绿（artifact 16/16、tsc 0、lint 0、format 0、depcruise 50 modules/99 deps 0 违规、
   node --test 197/197、vitest 7/7、legacy 8/8）。真机验收等 dsh 重启后做（注入代码已删，必须重启才生效）。
+
+- **2026-11-06 · 阶段 3 完成**：`lib/**` 全量迁到 `src/host/**`（32 个 TS 文件，按依赖从叶子往上：
+  text/http/models/r5/annotate/schedule/service → store/* → dict/translate/lookup/enrich/_/runtime → routes/_/index）。
+  管道：`tsconfig.host.json`（NodeNext，`rootDir src` → `outDir lib`，产物 `lib/host/**` 已 gitignore），
+  `pnpm build` = tsdown + tsc，`pnpm typecheck` 双投影。入口 `package.json` `main`/`exports['.']` → `lib/host/index.js`。
+  只加类型不改逻辑；`any` 仅 11 处 `catch (err: any)`。迁移中抓到并修复一个真实回归：`dict.ts` 的 HERE 下移一层导致
+  词典库路径失效、所有查词 404（`bfde3bb`，改为从包根向上查找 + 集成测试哨兵）。
+  真机验收（重启后）：`/lookup?word=throughput` → `ok:true` 2 条释义；`/list`、`/dashboard`、`/queue`、
+  `/annotate/words`、`/repair/stats`、`/repair/recap`、`/sense-map`、`/models`、`/model-info` 全部 200；
+  `/repair/log` GET 正确 405 + `METHOD_NOT_ALLOWED`；学习页四视图真实数据渲染，对话页 6 个 `.dwl-anno`、
+  1 个插件 style、无插件 `<script src>`。
+
+- **2026-11-06 · 阶段 4 完成**：删自写 `check-cycles.mjs`（环交给 dependency-cruiser）；删 `tests/helpers/dashboard.mjs`
+  （320 行 vm 手搓 React 替身）→ 真实 jsdom + RTL 组件测试；5 个 legacy 断言脚本 → `tests/integration/*.test.ts`
+  （真实 ctx 桩 + 临时 DSH_HOME + canary），删 `scripts/test-all.mjs`/`test:legacy`；新增 `check:tarball` 产物契约；
+  新增 GitHub Actions（只跑 `pnpm verify`）+ `prepublishOnly = pnpm build`；覆盖率门槛保持三条关键模块 include。
+  验证：`pnpm verify` exit 0（artifact 16/16、tarball 42 文件、depcruise 51 modules/128 deps 0 违规、
+  node --test 181/181、vitest 136/136）。
