@@ -1,6 +1,6 @@
 // store/words.mjs —— 生词本、原句、AI 元数据、义项材料与补记线索的读写。
 //
-// 从 lib/store.mjs 拆出来的第一等职责：words / contexts / sense_meta 的查询与写入。
+// 从 store.ts 拆出来的第一等职责：words / contexts / sense_meta 的查询与写入。
 // 所有函数都接收 Store 实例（而不是裸 db 句柄），因为「先 open() 再取 store.db」
 // 是用户库原语的一部分，拆开后不能两边各判一次打开状态。
 //

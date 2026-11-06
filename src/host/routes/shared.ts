@@ -6,10 +6,10 @@
 //   3. 请求体必须是 JSON 对象（空 body / 数组 / 标量在 readJson 就抛，交给 400 分支）；
 //   4. 数字只从一个口子进：query 走 `http.mjs` 的 `intParam`，请求体走 `http.mjs` 的
 //      `clampInt`（同语义，入参是值）。`clampInt` 归口在 http.mjs（零依赖纯函数），
-//      本文只再导出，业务模块（如 lib/r5.mjs）直接 import `./http.mjs`，不许依赖 routes 层。
+//      本文只再导出，业务模块（如 r5.ts）直接 import `../http.js`，不许依赖 routes 层。
 //
 // 公共出口保持不变：`import { clampInt } from './shared.mjs'` 照旧可用。
-// 实现与语义说明见 `lib/http.mjs`（与 intParam 同归口）。
+// 实现与语义说明见 `../http.ts`（与 intParam 同归口）。
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { ServiceHost } from '../service.js'
 

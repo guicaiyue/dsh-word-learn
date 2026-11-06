@@ -13,7 +13,7 @@
 //   - fallback 兜的是"缺省 / 空串 / 非数字 / 0"，与旧写法 `Number(x) || fallback` 等价；
 //   - 钳制在读取时完成，调用方拿到的就是安全值。
 //
-// 为什么不放在 lib/routes/shared.mjs：那是"路由层的响应出口"，业务模块（如 lib/r5.mjs）
+// 为什么不放在 routes/shared.ts：那是"路由层的响应出口"，业务模块（如 r5.ts）
 // 要用同一个钳制口，但不能为了一个纯函数反向依赖 routes 层。所以归口留在 http.mjs
 // （零依赖、纯函数），routes/shared.mjs 只做再导出，handler 的 import 不用改。
 

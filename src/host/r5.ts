@@ -7,7 +7,7 @@
 //    index.js 是路由层，路由应该薄。R5 怎么选词、怎么配同义/异义、判分后
 //    怎么动债，全收在这一个文件里 —— 以后要把回访改成 3 天后，只动这里。
 // ② 这两件事都是「只读推导 + 只写补记表」，独立成模块才能用临时 DSH_HOME
-//    单测（scripts/test-r5.mjs），不用起宿主。
+//    单测（tests/integration/r5.test.ts），不用起宿主。
 //
 // ─────────────────────────────────────────────────────────────
 // 三条硬约束（DESIGN.md §10，改代码前先读）
@@ -22,7 +22,7 @@
 // ─────────────────────────────────────────────────────────────
 // 「昨天」怎么算
 // ─────────────────────────────────────────────────────────────
-// 复用 lib/schedule.mjs 的 dayStart()：本地时区第 n 天零点。
+// 复用 schedule.ts 的 dayStart()：本地时区第 n 天零点。
 // **不要用 UTC 零点**（用户在东八区，UTC 零点 = 本地早上 8 点换日），
 // 也不要自己算 86400000 的倍数 —— 跨夏令时/时区一改就错。
 // 「昨天」= [dayStart(-1, now), dayStart(0, now))。
@@ -64,7 +64,7 @@ import type { DatabaseSync } from 'node:sqlite'
 import { clampInt } from './http.js'
 import { dayStart } from './schedule.js'
 
-/** 只读推导 + 只写补记表用到的最小用户库能力（lib/store.mjs 的 Store 满足它）。 */
+/** 只读推导 + 只写补记表用到的最小用户库能力（store.ts 的 Store 满足它）。 */
 export interface RecapStoreLike {
   open(): boolean
   db?: DatabaseSync | null
@@ -371,7 +371,7 @@ function buildMaterial(db: DatabaseSync, row: CandidateRow): RecapMaterial | nul
 /**
  * 生成「昨日回访」的判别题。
  *
- * @param {object} store  lib/store.mjs 的 Store 实例
+ * @param store store.ts 的 Store 实例
  * @param {object} [opts]
  * @param {number} [opts.limit=5]  最多几题。缺省用 5；给了数字才 floor 并夹到 1–20
  * @param {number} [opts.now]      测试注入用的时间戳；默认 Date.now()

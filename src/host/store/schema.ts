@@ -65,7 +65,7 @@ CREATE TABLE IF NOT EXISTS contexts (
 -- ⚠️ learning_steps 是**调度状态的一部分，不是装饰**：
 -- 它是"当前在第几个学习步"。丢掉它卡片会永远卡在 Learning 状态，
 -- 永远毕业不到 Review，而且**不报错**（所有间隔恒为 0 天）。
--- 详见 lib/schedule.mjs 顶部注释里的实测对照。
+-- 详见 schedule.ts 顶部注释里的实测对照。
 CREATE TABLE IF NOT EXISTS cards (
   id             INTEGER PRIMARY KEY,
   word_id        INTEGER NOT NULL REFERENCES words(id) ON DELETE CASCADE,

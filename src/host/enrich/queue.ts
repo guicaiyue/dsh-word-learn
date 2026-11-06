@@ -19,7 +19,7 @@ import { analyzeWord } from './analysis.js'
 import { analyzeSense } from './sense.js'
 import { reason } from './llm.js'
 
-/** 队列操作所需的最小 Store 能力（lib/store.mjs 的 Store 满足它）。 */
+/** 队列操作所需的最小 Store 能力（store.ts 的 Store 满足它）。 */
 export interface QueueStore extends ModelSettingsStore {
   getMeta(word: unknown): WordMeta | null
   setMeta(word: unknown, meta: unknown): boolean

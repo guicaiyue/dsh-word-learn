@@ -1,7 +1,7 @@
 // routes/paths.mjs —— 路由路径常量。
 //
 // 集中一处：路由模块只引用常量，路径字符串不再散落在 index.js 与各路由文件里；
-// 改路径时改这里，测试（scripts/test-routes.mjs）按行为断言会自动发现。
+// 改路径时改这里，测试（tests/integration/routes.test.ts）按行为断言会自动发现。
 //
 // 说明：阶段 2 起前端全部并入 bundle（dist/client.js），由宿主按 package.json 的
 // exports["./client"] 加载；原来那 6 条静态脚本路由（core/voice/wordcard*/annotate/client）

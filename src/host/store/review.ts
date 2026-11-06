@@ -1,14 +1,14 @@
 // store/review.mjs —— 看板聚合、分档统计、补记日志与补记债。
 //
-// 从 lib/store.mjs 拆出来的第二等职责：review_log / repair_log / repair_debt
-// 的写入与聚合读取。注意这里**不算 FSRS**：排期计算在 lib/schedule.mjs，
+// 从 store.ts 拆出来的第二等职责：review_log / repair_log / repair_debt
+// 的写入与聚合读取。注意这里**不算 FSRS**：排期计算在 schedule.ts，
 // 本文件只读卡片与日志的既有状态并把口径统一在一处。
 import type { DatabaseSync } from 'node:sqlite'
 
 import { dayStart } from '../schedule.js'
 import { DB_FILE } from './schema.js'
 
-/** 统计/看板/补记用到的最小 Store 能力（lib/store.mjs 的 Store 满足它）。 */
+/** 统计/看板/补记用到的最小 Store 能力（store.ts 的 Store 满足它）。 */
 export interface ReviewStoreLike {
   open(): boolean
   db?: DatabaseSync | null

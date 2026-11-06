@@ -5,7 +5,7 @@
 //   - 记忆方法 / 关联场景 / 易混淆词
 // 结果写入 words.word_meta（JSON），供复习时的选择题和记忆提示使用。
 //
-// 2026-11-05 按职责拆到 lib/enrich/（拆分前 589 代码行，超 CODE_BUDGET 620）：
+// 2026-11-05 按职责拆到 src/host/enrich/（拆分前 589 代码行，超 CODE_BUDGET 620）：
 //   queue.mjs     后台队列：串行调度、去重、上限、disposeQueues、enqueue*
 //   analysis.mjs  词级分析：提示词、JSON 解析容错、归一化成 word_meta（含 _provider/_model）
 //   sense.mjs     义项分析：提示词、质量闸门、normalizeSenseMeta

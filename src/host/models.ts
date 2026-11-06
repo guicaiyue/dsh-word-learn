@@ -18,7 +18,7 @@
 
 import { getService, type ServiceHost } from './service.js'
 
-/** 设置读写用到的最小能力子集（lib/store.mjs 的 Store 满足它）。 */
+/** 设置读写用到的最小能力子集（store.ts 的 Store 满足它）。 */
 export interface ModelSettingsStore {
   getSetting?(key: string): string | null | undefined
   setSetting?(key: string, value: string): boolean

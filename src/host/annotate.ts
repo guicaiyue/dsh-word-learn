@@ -58,7 +58,7 @@ export interface AnnotateOk {
 
 export type AnnotateResult = AnnotateOk | AnnotateFailure
 
-/** 只读用户库用到的最小能力（lib/store.mjs 的 Store 满足它）。 */
+/** 只读用户库用到的最小能力（store.ts 的 Store 满足它）。 */
 export interface AnnotateStoreLike {
   open(): boolean
   db?: DatabaseSync | null
@@ -255,7 +255,7 @@ const PICK_SQL = `SELECT w.id            AS wid,
 /**
  * 取「在学」词表。
  *
- * @param {object} store Store 实例（lib/store.mjs）。只读，不写库。
+ * @param store Store 实例（store.ts）。只读，不写库。
  * @param {object} [opts]
  * @param {number} [opts.limit=2000] 词表上限；正文标注不需要全库，2000 条约 200KB JSON。
  * @param {number} [opts.minSeen=0]   可选：只取见过 >= N 次的词（v2 灰度用）。
