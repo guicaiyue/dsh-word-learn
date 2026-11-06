@@ -1,5 +1,9 @@
 import js from '@eslint/js'
 import globals from 'globals'
+import tseslint from 'typescript-eslint'
+import { fileURLToPath } from 'node:url'
+
+const tsRoot = fileURLToPath(new URL('.', import.meta.url))
 
 /**
  * dsh-word-learn 静态检测配置（ESLint flat config）。
@@ -58,14 +62,10 @@ export default [
       'locale/**',
       'dist/**',
       'coverage/**',
+      '.tmp/**',
+      '.scratch/**',
       'lib/host/**',
       '**/*.min.js',
-      // TS/TSX 由 tsc（tsconfig.json 的 noUnusedLocals 等）负责类型与未用检查；
-      // ESLint 没有配 @typescript-eslint parser，强行 lint 只会拿到「0 条规则」的假绿。
-      '**/*.ts',
-      '**/*.tsx',
-      // 宿主侧源码（src/host/**）全部是 TS：正确性由 tsc 双投影 + dependency-cruiser 的
-      // 分层规则守；ESLint 没有 @typescript-eslint parser，强行 lint 只会得到「0 条规则」的假绿。
     ],
   },
 
@@ -87,6 +87,40 @@ export default [
         { name: '__dirname', message: '客户端源码跑在浏览器，没有 __dirname。' },
         { name: 'Buffer', message: '客户端源码跑在浏览器，没有 Buffer。' },
       ],
+    },
+  },
+
+  // ---- TypeScript：语法规则 + 少量「能命中真实缺陷」的类型感知规则 -------------
+  // 为什么不全量开 recommendedTypeChecked：这个仓库的宿主 ctx / 路由参数边界天然是
+  // `any`（cordis 服务没类型），全量类型感知会报出 1300+ 条 no-unsafe-*，把真问题淹掉。
+  // 只留三条「看到就必须改」的：未处理的 Promise、把 Promise 传进不该传的地方、
+  // await 了非 Promise（ADR-0005：门禁要能说出它拦的是哪个真实缺陷）。
+  ...tseslint.configs.recommended.map(function (cfg) {
+    return { ...cfg, files: ['**/*.ts', '**/*.tsx'] }
+  }),
+  {
+    files: ['**/*.ts', '**/*.tsx'],
+    languageOptions: {
+      parserOptions: { project: ['./tsconfig.eslint.json'], tsconfigRootDir: tsRoot },
+      globals: { ...globals.node, ...globals.browser },
+    },
+    rules: {
+      // 宿主 ctx / 路由入参的边界来自 cordis（无类型），这里必然出现 any。
+      // 当前不 undeclared-any 报告：这些点是「待补服务类型」的已知缺口（记在残余风险），
+      // 报成 warn 只会让每次 lint 输出 75 行噪音，不会有人改。
+      '@typescript-eslint/no-explicit-any': 'off',
+      '@typescript-eslint/no-unused-vars': [
+        'error',
+        {
+          args: 'after-used',
+          argsIgnorePattern: '^_',
+          varsIgnorePattern: '^_',
+          caughtErrors: 'none',
+        },
+      ],
+      '@typescript-eslint/no-floating-promises': 'error',
+      '@typescript-eslint/no-misused-promises': 'error',
+      '@typescript-eslint/await-thenable': 'error',
     },
   },
 

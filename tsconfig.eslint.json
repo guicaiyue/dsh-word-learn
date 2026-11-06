@@ -1,0 +1,21 @@
+// 只给 ESLint 的类型感知解析用（`parserOptions.project`），不参与 pnpm typecheck/emit。
+//
+// 为什么要单独一份：tsconfig.json 的 include 只覆盖 src + 构建配置，tests/ 被排除；
+// 而测试文件也需要被 lint（尤其 tests/component 的 .tsx）。这里放宽 include，不改门禁口径。
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "jsx": "react-jsx",
+    "types": ["node"]
+  },
+  "include": [
+    "src/**/*.ts",
+    "src/**/*.tsx",
+    "tests/**/*.ts",
+    "tests/**/*.tsx",
+    "tsdown.config.ts",
+    "vitest.config.ts"
+  ],
+  "exclude": ["node_modules", "dist", "lib", "scripts"]
+}

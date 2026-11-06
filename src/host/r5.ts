@@ -149,7 +149,7 @@ export interface SenseMapEntry {
 }
 
 /** R5 在 repair_log 里的阶段标记。与 store.mjs 的注释一致。 */
-export const RECAP_STAGE: 'tomorrow' = 'tomorrow'
+export const RECAP_STAGE = 'tomorrow' as const
 
 /** 补记事件里允许的两个答案取值。 */
 export const RECAP_GUESS: { same: 'same'; diff: 'diff' } = { same: 'same', diff: 'diff' }

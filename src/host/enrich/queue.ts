@@ -108,7 +108,9 @@ export function enqueueAnalysis(
   if (pending.length >= MAX_PENDING) return
 
   pending.push({ ctx, store, word, translation, definition })
-  drainQueue()
+  // 后台排水，故意不 await：整个 drain 循环内部 try/catch 兜住每个任务，
+  // 这里只负责触发（用 void 明说「不是漏了 await」）。
+  void drainQueue()
 }
 
 async function drainQueue(): Promise<void> {
@@ -178,7 +180,8 @@ export function enqueueSenseAnalysis(
   if (sensePending.some((p) => p.word === word && p.sentence === sentence)) return
   if (sensePending.length >= MAX_PENDING) return
   sensePending.push({ ctx, store, word, translation, sentence, definition })
-  drainSenseQueue()
+  // 同上：后台排水，错误在 drain 内部消化。
+  void drainSenseQueue()
 }
 
 async function drainSenseQueue() {
